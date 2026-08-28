@@ -1,0 +1,1460 @@
+import React, { useState, useEffect } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
+import { 
+  Calendar as CalendarIcon, 
+  Users, 
+  Check, 
+  ChevronRight, 
+  ChevronLeft, 
+  Plus, 
+  Minus, 
+  Flame, 
+  Target, 
+  Coffee, 
+  Compass, 
+  Sparkles, 
+  AlertCircle, 
+  ArrowRight,
+  Printer,
+  Info,
+  CalendarCheck,
+  MapPin,
+  Trash2,
+  CreditCard,
+  ExternalLink
+} from 'lucide-react';
+import { Accommodation, AddOn, Booking } from '../types';
+import { ACCOMMODATIONS, ADD_ONS } from '../data';
+
+// Helper to format date as YYYY-MM-DD
+const formatDateStr = (date: Date): string => {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+};
+
+// Helper to check if date is in past
+const isPastDate = (dateStr: string): boolean => {
+  const todayStr = formatDateStr(new Date()); // Current actual local date
+  return dateStr < todayStr;
+};
+
+// Helper to get list of dates between two dates
+const getDatesInRange = (startStr: string, endStr: string): string[] => {
+  const dates: string[] = [];
+  const start = new Date(startStr);
+  const end = new Date(endStr);
+  const current = new Date(start);
+  
+  while (current < end) {
+    dates.push(formatDateStr(current));
+    current.setDate(current.getDate() + 1);
+  }
+  return dates;
+};
+
+// Map Icon name to Lucide Icon
+const getAddOnIcon = (iconName: string) => {
+  switch (iconName) {
+    case 'Flame': return <Flame className="w-5 h-5 text-amber-500" />;
+    case 'Target': return <Target className="w-5 h-5 text-emerald-500" />;
+    case 'Coffee': return <Coffee className="w-5 h-5 text-gold-500" />;
+    case 'Compass': return <Compass className="w-5 h-5 text-sky-500" />;
+    default: return <Sparkles className="w-5 h-5 text-gold-500" />;
+  }
+};
+
+interface BookingSystemProps {
+  initialAccommodationId?: string;
+  onBookingSuccess?: () => void;
+  accommodations: Accommodation[];
+  bookings: Booking[];
+  onBookingsChange: (bookings: Booking[]) => void;
+}
+
+export default function BookingSystem({ 
+  initialAccommodationId, 
+  onBookingSuccess, 
+  accommodations,
+  bookings,
+  onBookingsChange: setBookings
+}: BookingSystemProps) {
+  // --- STATE ---
+  const [selectedAcc, setSelectedAcc] = useState<Accommodation>(
+    accommodations.find(a => a.id === initialAccommodationId) || accommodations[0]
+  );
+  
+  // Sync selectedAcc if accommodations prop changes
+  useEffect(() => {
+    const currentSelectedId = selectedAcc?.id || initialAccommodationId || 'luxury-cabin';
+    const match = accommodations.find(a => a.id === currentSelectedId) || accommodations[0];
+    if (match) {
+      setSelectedAcc(match);
+    }
+  }, [accommodations, initialAccommodationId]);
+  
+  // Date states
+  const [checkIn, setCheckIn] = useState<string>('');
+  const [checkOut, setCheckOut] = useState<string>('');
+  const [currentMonth, setCurrentMonth] = useState<Date>(new Date());
+  const [hoveredDate, setHoveredDate] = useState<string | null>(null);
+
+  // Extras and guests
+  const [guests, setGuests] = useState<number>(2);
+  const [selectedAddOns, setSelectedAddOns] = useState<AddOn[]>([]);
+  const [notes, setNotes] = useState<string>('');
+
+  // PayMongo and Add-on Quantity State
+  const [paymentMethod, setPaymentMethod] = useState<'cash' | 'paymongo'>('cash');
+  const [addOnQuantities, setAddOnQuantities] = useState<Record<string, number>>({});
+  const [addOnsCatalog, setAddOnsCatalog] = useState<AddOn[]>([]);
+  const [paymongoCheckoutUrl, setPaymongoCheckoutUrl] = useState<string>('');
+
+  // Fetch dynamic add-ons on load
+  useEffect(() => {
+    fetch('/api/add-ons')
+      .then(res => res.json())
+      .then(data => {
+        if (Array.isArray(data) && data.length > 0) {
+          setAddOnsCatalog(data.map((ao: any) => ({
+            id: String(ao.id),
+            name: ao.name,
+            price: Number(ao.price),
+            description: ao.description || '',
+            icon: ao.id === 1 ? 'Flame' : ao.id === 2 ? 'Target' : ao.id === 3 ? 'Coffee' : 'Compass'
+          })));
+        } else {
+          setAddOnsCatalog(ADD_ONS);
+        }
+      })
+      .catch(err => {
+        console.error('Failed to load add-ons, falling back:', err);
+        setAddOnsCatalog(ADD_ONS);
+      });
+  }, []);
+
+  // Contact details
+  const [customerName, setCustomerName] = useState<string>('');
+  const [customerEmail, setCustomerEmail] = useState<string>('');
+  const [customerPhone, setCustomerPhone] = useState<string>('');
+  const [bookingStep, setBookingStep] = useState<number>(1); // 1: Cabin & Dates, 2: Add-Ons & Details, 3: Success Voucher
+  const [newBookingResult, setNewBookingResult] = useState<Booking | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+  
+  // Custom interactive tab for user to view booking status
+  const [activeSubTab, setActiveSubTab] = useState<'book' | 'manage'>('book');
+  const [searchBookingRef, setSearchBookingRef] = useState<string>('');
+  const [searchedBooking, setSearchedBooking] = useState<Booking | null>(null);
+  const [searchError, setSearchError] = useState<string>('');
+
+  // --- INITIALIZE & SYNC ---
+  useEffect(() => {
+    // 1. Initialise localStorage bookings if empty with realistic occupancy helper
+    const stored = localStorage.getItem('valleypoint_bookings');
+    if (stored) {
+      setBookings(JSON.parse(stored));
+    } else {
+      // Mock existing bookings for real live calendar availability demonstrations
+      const mockBookings: Booking[] = [
+        {
+          id: 'VP-8429',
+          customerName: 'Aries Santos',
+          customerEmail: 'aries@example.com',
+          customerPhone: '09171234567',
+          checkIn: '2026-06-20',
+          checkOut: '2026-06-22',
+          accommodationId: 'luxury-cabin',
+          guestsCount: 2,
+          totalAmount: 11347.76,
+          addOns: [{ id: 'bonfire-kit', name: 'Private Bonfire Log & Marshmallow Kit', price: 450 }],
+          status: 'confirmed',
+          createdAt: '2026-06-10T14:30:00Z'
+        },
+        {
+          id: 'VP-1123',
+          customerName: 'Clara Villa',
+          customerEmail: 'clara@example.com',
+          customerPhone: '09189876543',
+          checkIn: '2026-06-20',
+          checkOut: '2026-06-21',
+          accommodationId: 'luxury-cabin',
+          guestsCount: 2,
+          totalAmount: 5598.88,
+          addOns: [],
+          status: 'confirmed',
+          createdAt: '2026-06-12T09:15:00Z'
+        },
+        // Fill out standard pitching spots to show "Limited" warning
+        {
+          id: 'VP-9034',
+          customerName: 'Sam Ramos',
+          customerEmail: 'sam@example.com',
+          customerPhone: '09192233445',
+          checkIn: '2026-06-24',
+          checkOut: '2026-06-25',
+          accommodationId: 'standard-pitching',
+          guestsCount: 2,
+          totalAmount: 1344.00,
+          addOns: [],
+          status: 'confirmed',
+          createdAt: '2026-06-15T11:00:00Z'
+        }
+      ];
+      // Create identical helper bookings to exhaust inventory of luxury cabin on June 20-22 (quantity = 4)
+      for (let i = 1; i < 4; i++) {
+        mockBookings.push({
+          id: `VP-MOCK-${i}`,
+          customerName: `Guest ${i}`,
+          customerEmail: `guest${i}@example.com`,
+          customerPhone: '09123456789',
+          checkIn: '2026-06-20',
+          checkOut: '2026-06-22',
+          accommodationId: 'luxury-cabin',
+          guestsCount: 2,
+          totalAmount: 9998.00,
+          addOns: [],
+          status: 'confirmed',
+          createdAt: '2026-06-14T08:00:00Z'
+        });
+      }
+      localStorage.setItem('valleypoint_bookings', JSON.stringify(mockBookings));
+      setBookings(mockBookings);
+    }
+  }, []);
+
+  // Update selection if prop changes
+  useEffect(() => {
+    if (initialAccommodationId) {
+      const match = accommodations.find(a => a.id === initialAccommodationId);
+      if (match) setSelectedAcc(match);
+    }
+  }, [initialAccommodationId, accommodations]);
+
+  // Adjust guests according to cabin capacity limits
+  useEffect(() => {
+    if (guests > selectedAcc.capacity) {
+      setGuests(selectedAcc.capacity);
+    }
+  }, [selectedAcc, guests]);
+
+  // --- OCCUPANCY & AVAILABILITY ENGINE ---
+  // Calculates how many units of specific cabin type are reserved on a given date (YYYY-MM-DD)
+  const getOccupancyOnDate = (accId: string, dateStr: string): number => {
+    let count = 0;
+    bookings.forEach(booking => {
+      if (booking.status === 'cancelled') return;
+      if (booking.accommodationId === accId) {
+        // A booking occupies dates from Check-In up to (but not including) Check-Out
+        if (dateStr >= booking.checkIn && dateStr < booking.checkOut) {
+          count++;
+        }
+      }
+    });
+    return count;
+  };
+
+  // Check how many of the selected room category are available on a specific date
+  const getAvailableInventoryOnDate = (accId: string, dateStr: string): { available: number; total: number; status: 'available'|'limited'|'booked' } => {
+    const acc = accommodations.find(a => a.id === accId) || selectedAcc;
+    const occupied = getOccupancyOnDate(acc.id, dateStr);
+    const available = Math.max(0, acc.quantity - occupied);
+    
+    let status: 'available' | 'limited' | 'booked' = 'available';
+    if (available === 0) {
+      status = 'booked';
+    } else if (available <= 2 || available <= acc.quantity * 0.3) {
+      status = 'limited';
+    }
+    
+    return { available, total: acc.quantity, status };
+  };
+
+  // Check if a range of dates is fully available for selected room
+  const isRangeAvailable = (accId: string, startStr: string, endStr: string): boolean => {
+    if (!startStr || !endStr) return false;
+    const dates = getDatesInRange(startStr, endStr);
+    return dates.every(d => {
+      const { available } = getAvailableInventoryOnDate(accId, d);
+      return available > 0;
+    });
+  };
+
+  // --- CALENDAR GRID GENERATION (Custom Grid) ---
+  const generateCurrentMonthDays = () => {
+    const year = currentMonth.getFullYear();
+    const month = currentMonth.getMonth();
+    
+    // First day of current month
+    const firstDay = new Date(year, month, 1);
+    const firstDayIndex = firstDay.getDay(); // 0 is Sunday, etc.
+    
+    // Number of days in current month
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    
+    const days: { dateStr: string; dayNum: number; isCurrentMonth: boolean }[] = [];
+    
+    // Previous month padding
+    const prevMonthDays = new Date(year, month, 0).getDate();
+    for (let i = firstDayIndex - 1; i >= 0; i--) {
+      const prevDate = new Date(year, month - 1, prevMonthDays - i);
+      days.push({
+        dateStr: formatDateStr(prevDate),
+        dayNum: prevMonthDays - i,
+        isCurrentMonth: false
+      });
+    }
+    
+    // Current month days
+    for (let i = 1; i <= daysInMonth; i++) {
+      const currDate = new Date(year, month, i);
+      days.push({
+        dateStr: formatDateStr(currDate),
+        dayNum: i,
+        isCurrentMonth: true
+      });
+    }
+    
+    // Next month padding to complete standard 6-week grid
+    const totalSlots = 42;
+    const nextDaysNeeded = totalSlots - days.length;
+    for (let i = 1; i <= nextDaysNeeded; i++) {
+      const nextDate = new Date(year, month + 1, i);
+      days.push({
+        dateStr: formatDateStr(nextDate),
+        dayNum: i,
+        isCurrentMonth: false
+      });
+    }
+    
+    return days;
+  };
+
+  // Handle calendar day clicks (selection range mechanics)
+  const handleDayClick = (dateStr: string) => {
+    if (isPastDate(dateStr)) return; // No past dates
+    
+    const checkAvailabilityAndSet = (inDate: string, outDate: string) => {
+      if (isRangeAvailable(selectedAcc.id, inDate, outDate)) {
+        setCheckIn(inDate);
+        setCheckOut(outDate);
+      } else {
+        // Reset and start range again if selected range crosses fully booked dates
+        setCheckIn(dateStr);
+        setCheckOut('');
+        alert(`Note: The selected range contains fully booked dates for "${selectedAcc.name}". Please pick a different range or cabin.`);
+      }
+    };
+
+    if (!checkIn || (checkIn && checkOut)) {
+      // First click: start of range or reset
+      setCheckIn(dateStr);
+      setCheckOut('');
+    } else {
+      // Second click: end of range
+      if (dateStr < checkIn) {
+        // Clicked date is earlier than check-in; treat it as new check-in
+        setCheckIn(dateStr);
+      } else if (dateStr === checkIn) {
+        // Clicked same date: do nothing or reset
+        setCheckIn('');
+      } else {
+        checkAvailabilityAndSet(checkIn, dateStr);
+      }
+    }
+  };
+
+  // --- COMPUTATIONS FOR BILLING ---
+  const nightsCount = checkIn && checkOut ? getDatesInRange(checkIn, checkOut).length : 0;
+  const basePrice = selectedAcc.price * nightsCount;
+  const addOnsPrice = selectedAddOns.reduce((total, addon) => {
+    const qty = addOnQuantities[addon.id] || 1;
+    return total + (addon.price * qty);
+  }, 0);
+  const subTotal = basePrice + addOnsPrice;
+  const serviceChargeAndTaxFraction = 0.12; // 12% Highland eco-conservation tax & service vat
+  const taxAmount = subTotal * serviceChargeAndTaxFraction;
+  const grandTotal = subTotal + taxAmount;
+
+  // Toggle addons
+  const handleToggleAddOn = (addon: AddOn) => {
+    if (selectedAddOns.some(a => a.id === addon.id)) {
+      setSelectedAddOns(selectedAddOns.filter(a => a.id !== addon.id));
+      const updated = { ...addOnQuantities };
+      delete updated[addon.id];
+      setAddOnQuantities(updated);
+    } else {
+      setSelectedAddOns([...selectedAddOns, addon]);
+      setAddOnQuantities({ ...addOnQuantities, [addon.id]: 1 });
+    }
+  };
+
+  const handleUpdateAddOnQuantity = (addonId: string, delta: number) => {
+    const current = addOnQuantities[addonId] || 1;
+    const next = Math.max(1, current + delta);
+    setAddOnQuantities({ ...addOnQuantities, [addonId]: next });
+  };
+
+  // --- FORM SUBMISSION (Create Reservation) ---
+  const handleCreateBooking = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!checkIn || !checkOut) {
+      alert('Please select check-in and check-out dates.');
+      return;
+    }
+    if (!customerName || !customerEmail || !customerPhone) {
+      alert('Please fill out all contact information fields.');
+      return;
+    }
+
+    setIsSubmitting(true);
+
+    fetch('/api/bookings', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        customerName,
+        customerEmail,
+        customerPhone,
+        checkIn,
+        checkOut,
+        accommodationId: selectedAcc.id,
+        guestsCount: guests,
+        selectedAddOns: selectedAddOns.map(ao => ({ id: Number(ao.id) || 1, quantity: addOnQuantities[ao.id] || 1 })),
+        paymentMethod,
+        notes,
+      }),
+    })
+    .then(res => {
+      if (!res.ok) {
+        return res.json().then(err => {
+          throw new Error(err.error || 'Failed to create booking.');
+        });
+      }
+      return res.json();
+    })
+    .then((result: any) => {
+      // Create a booking object for UI compatibility
+      const mockResult: Booking = {
+        id: result.reference || result.id || 'VP-TEMP',
+        customerName,
+        customerEmail,
+        customerPhone,
+        checkIn,
+        checkOut,
+        accommodationId: selectedAcc.id,
+        guestsCount: guests,
+        totalAmount: result.totalAmount || parseFloat(grandTotal.toFixed(2)),
+        addOns: selectedAddOns.map(ao => ({ 
+          id: ao.id, 
+          name: ao.name, 
+          price: ao.price,
+          quantity: addOnQuantities[ao.id] || 1
+        })),
+        status: (result.status === 'pending') ? 'pending' : 'confirmed',
+        createdAt: new Date().toISOString()
+      };
+
+      const updatedBookings = [mockResult, ...bookings];
+      localStorage.setItem('valleypoint_bookings', JSON.stringify(updatedBookings));
+      setBookings(updatedBookings);
+      setNewBookingResult(mockResult);
+      
+      if (result.checkoutUrl) {
+        setPaymongoCheckoutUrl(result.checkoutUrl);
+        // Automatically open the PayMongo checkout URL in a new tab to avoid iframe constraints
+        window.open(result.checkoutUrl, '_blank', 'noopener,noreferrer');
+      } else {
+        setPaymongoCheckoutUrl('');
+      }
+
+      setIsSubmitting(false);
+      setBookingStep(3); // Go to voucher screen
+      
+      if (onBookingSuccess) onBookingSuccess();
+    })
+    .catch(error => {
+      console.error('Error creating booking:', error);
+      alert(error.message || 'An error occurred while saving your booking.');
+      setIsSubmitting(false);
+    });
+  };
+
+  // Live cancel booking handler in "Manage Bookings" tab
+  const handleCancelBooking = (bookingId: string) => {
+    if (window.confirm('Are you sure you want to cancel this booking reservation? Note: Refunding depends on policies.')) {
+      const refCode = searchedBooking?.reference || searchedBooking?.id || bookingId;
+      fetch(`/api/bookings/${bookingId}/cancel`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reference: refCode }),
+      })
+      .then(res => {
+        if (!res.ok) throw new Error('Failed to cancel booking.');
+        return res.json();
+      })
+      .then(() => {
+        const updated = bookings.map(b => {
+          if (b.id === bookingId) {
+            return { ...b, status: 'cancelled' as const };
+          }
+          return b;
+        });
+        localStorage.setItem('valleypoint_bookings', JSON.stringify(updated));
+        setBookings(updated);
+        
+        if (searchedBooking && searchedBooking.id === bookingId) {
+          setSearchedBooking({ ...searchedBooking, status: 'cancelled' });
+        }
+        alert('Booking cancellation processed successfully.');
+      })
+      .catch(err => {
+        console.error('Error cancelling booking:', err);
+        alert('Failed to cancel booking. Please try again.');
+      });
+    }
+  };
+
+  // Booking details query handler
+  const handleSearchBooking = (e: React.FormEvent) => {
+    e.preventDefault();
+    setSearchedBooking(null);
+    setSearchError('');
+    
+    if (!searchBookingRef.trim()) {
+      setSearchError('Please provide a booking Reference ID.');
+      return;
+    }
+
+    const trimmedRef = searchBookingRef.trim().toUpperCase();
+    const found = bookings.find(b => b.id === trimmedRef || b.id === `VP-${trimmedRef}`);
+    
+    if (found) {
+      setSearchedBooking(found);
+    } else {
+      setSearchError('No active reservation verified under that reference number.');
+    }
+  };
+
+  // Nav months
+  const nextMonth = () => {
+    setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1));
+  };
+  const prevMonth = () => {
+    const today = new Date('2026-06-17');
+    if (currentMonth.getMonth() === today.getMonth() && currentMonth.getFullYear() === today.getFullYear()) {
+      return; // Do not go before current month
+    }
+    setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1));
+  };
+
+  // Check day state styles (in-range, hovered, starting, past)
+  const getDayClasses = (dateStr: string, isCurrentMonth: boolean) => {
+    const isPast = isPastDate(dateStr);
+    if (isPast) {
+      return 'bg-neutral-900/10 text-neutral-400 font-light cursor-not-allowed line-through';
+    }
+
+    const { status } = getAvailableInventoryOnDate(selectedAcc.id, dateStr);
+    const isSelectedStart = checkIn === dateStr;
+    const isSelectedEnd = checkOut === dateStr;
+    const isInSelectedRange = checkIn && checkOut && dateStr > checkIn && dateStr < checkOut;
+    
+    // Hover ranges feedback
+    let isInHoverRange = false;
+    if (checkIn && !checkOut && hoveredDate && dateStr > checkIn && dateStr <= hoveredDate) {
+      isInHoverRange = true;
+    }
+
+    let itemClass = '';
+
+    if (isSelectedStart || isSelectedEnd) {
+      itemClass = 'bg-gold-500 text-pine-950 font-bold scale-105 z-10 shadow-lg';
+    } else if (isInSelectedRange) {
+      itemClass = 'bg-gold-500/30 text-gold-200 border-y border-gold-500/20';
+    } else if (isInHoverRange) {
+      itemClass = 'bg-gold-500/20 text-gold-300 border-y border-dashed border-gold-500/20';
+    } else if (!isCurrentMonth) {
+      itemClass = 'text-neutral-500 hover:bg-pine-800/40';
+    } else if (status === 'booked') {
+      itemClass = 'bg-rose-500/10 text-rose-400 cursor-not-allowed border border-rose-500/20 relative before:content-[""] before:absolute before:w-1.5 before:h-1.5 before:bg-rose-500 before:rounded-full before:bottom-1 before:left-1/2 before:-translate-x-1/2';
+    } else if (status === 'limited') {
+      itemClass = 'bg-amber-500/10 hover:bg-amber-500/20 text-amber-200 border border-amber-500/20 relative before:content-[""] before:absolute before:w-1.5 before:h-1.5 before:bg-amber-500 before:rounded-full before:bottom-1 before:left-1/2 before:-translate-x-1/2';
+    } else {
+      itemClass = 'hover:bg-pine-700/50 text-emerald-50 border border-neutral-800/15';
+    }
+
+    return itemClass;
+  };
+
+  return (
+    <div className="w-full bg-pine-900 border border-pine-800 rounded-3xl overflow-hidden shadow-2xl relative" id="booking_portal_wrapper">
+      {/* Tab Selectors */}
+      <div className="flex border-b border-pine-800 bg-pine-950/80 backdrop-blur" id="tab_select_container">
+        <button
+          onClick={() => { setActiveSubTab('book'); setBookingStep(1); }}
+          className={`flex-1 py-5 text-center font-display font-medium text-sm transition-all relative ${
+            activeSubTab === 'book' ? 'text-gold-400 bg-pine-900' : 'text-neutral-400 hover:text-emerald-100'
+          }`}
+          id="btn_tab_book"
+        >
+          <span className="flex items-center justify-center gap-2">
+            <CalendarIcon className="w-4 h-4" /> Secure A Spot
+          </span>
+          {activeSubTab === 'book' && (
+            <motion.div layoutId="activeTabUnderline" className="absolute bottom-0 left-0 right-0 h-0.5 bg-gold-400" />
+          )}
+        </button>
+        <button
+          onClick={() => setActiveSubTab('manage')}
+          className={`flex-1 py-5 text-center font-display font-medium text-sm transition-all relative ${
+            activeSubTab === 'manage' ? 'text-gold-400 bg-pine-900' : 'text-neutral-400 hover:text-emerald-100'
+          }`}
+          id="btn_tab_manage"
+        >
+          <span className="flex items-center justify-center gap-2">
+            <CalendarCheck className="w-4 h-4" /> Verify & Manage Reservation
+          </span>
+          {activeSubTab === 'manage' && (
+            <motion.div layoutId="activeTabUnderline" className="absolute bottom-0 left-0 right-0 h-0.5 bg-gold-400" />
+          )}
+        </button>
+      </div>
+
+      <div className="p-6 md:p-8" id="booking_tab_body">
+        {/* --- PORTAL / BOOKING ENGINE TAB --- */}
+        {activeSubTab === 'book' && (
+          <div>
+            {/* Step Indicators */}
+            <div className="flex justify-center items-center gap-4 mb-8" id="step_indicator_bar">
+              <div className="flex items-center gap-2">
+                <span className={`w-7 h-7 rounded-full flex items-center justify-center font-semibold text-xs border ${
+                  bookingStep >= 1 ? 'bg-gold-500 text-pine-950 border-gold-500' : 'border-neutral-700 text-neutral-400'
+                }`}>1</span>
+                <span className={`text-xs font-medium ${bookingStep >= 1 ? 'text-gold-400' : 'text-neutral-500'}`}>Dates & Lodging</span>
+              </div>
+              <div className="w-8 h-[1px] bg-pine-800" />
+              <div className="flex items-center gap-2">
+                <span className={`w-7 h-7 rounded-full flex items-center justify-center font-semibold text-xs border ${
+                  bookingStep >= 2 ? 'bg-gold-500 text-pine-950 border-gold-500' : 'border-neutral-700 text-neutral-400'
+                }`}>2</span>
+                <span className={`text-xs font-medium ${bookingStep >= 2 ? 'text-gold-400' : 'text-neutral-500'}`}>Extras & Guarantee</span>
+              </div>
+              <div className="w-8 h-[1px] bg-pine-800" />
+              <div className="flex items-center gap-2">
+                <span className={`w-7 h-7 rounded-full flex items-center justify-center font-semibold text-xs border ${
+                  bookingStep >= 3 ? 'bg-gold-500 text-pine-950 border-gold-500' : 'border-neutral-700 text-neutral-400'
+                }`}>3</span>
+                <span className={`text-xs font-medium ${bookingStep >= 3 ? 'text-gold-400' : 'text-neutral-500'}`}>Receipt Voucher</span>
+              </div>
+            </div>
+
+            {/* STEP 1: SELECT ACCOMMODATION & DATES */}
+            {bookingStep === 1 && (
+              <motion.div 
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="grid grid-cols-1 lg:grid-cols-12 gap-8"
+                id="booking_step_1_layout"
+              >
+                {/* 1. Accommodations list Picker (Left Column) */}
+                <div className="lg:col-span-4 space-y-4" id="cabin_picker_list">
+                  <h3 className="font-display font-semibold text-lg text-cream-50 flex items-center gap-2">
+                    <span>1. Choose Campsite Style</span>
+                  </h3>
+                  <div className="grid grid-cols-1 gap-3">
+                    {accommodations.map((acc) => {
+                      const isSelected = selectedAcc.id === acc.id;
+                      return (
+                        <div
+                          key={acc.id}
+                          onClick={() => {
+                            setSelectedAcc(acc);
+                            // Verify checkin/out range is still completely clear for this new selection, if not reset
+                            if (checkIn && checkOut && !isRangeAvailable(acc.id, checkIn, checkOut)) {
+                              setCheckIn('');
+                              setCheckOut('');
+                            }
+                          }}
+                          className={`p-4 rounded-2xl border text-left cursor-pointer transition-all relative overflow-hidden group ${
+                            isSelected 
+                              ? 'bg-pine-850 border-gold-500 h-full shadow-md' 
+                              : 'bg-pine-950/40 border-pine-800 hover:border-pine-600'
+                          }`}
+                          id={`cabin_card_${acc.id}`}
+                        >
+                          {acc.imageUrl && (
+                            <div className="absolute right-0 top-0 h-1/2 w-1/3 opacity-30 group-hover:opacity-40 transition-opacity">
+                              <img src={acc.imageUrl} alt="" className="w-full h-full object-cover rounded-bl-3xl" referrerPolicy="no-referrer" />
+                            </div>
+                          )}
+                          
+                          <div className="relative pr-12">
+                            <span className="text-[10px] uppercase font-bold tracking-widest text-gold-400 font-display">
+                              {acc.type === 'luxury_cabin' ? 'Premium Cabin' : acc.type === 'glamping_tent' ? 'Glamping Tent' : 'Campground'}
+                            </span>
+                            <h4 className="font-display font-medium text-sm text-cream-50 mt-1">{acc.name}</h4>
+                            <p className="text-xs text-neutral-400 mt-2 line-clamp-2 max-w-[85%]">{acc.description}</p>
+                            
+                            <div className="flex items-center gap-4 mt-3 pt-3 border-t border-pine-800/60">
+                              <span className="text-xs font-display font-bold text-gold-300">
+                                ₱{acc.price.toLocaleString()} <span className="font-light text-[10px] text-neutral-400">/ night</span>
+                              </span>
+                              <span className="text-[10px] flex items-center gap-1 text-neutral-400">
+                                <Users className="w-3 h-3 text-gold-500/80" /> Max {acc.capacity} pax
+                              </span>
+                            </div>
+                          </div>
+                          {isSelected && (
+                            <div className="absolute right-4 bottom-4 w-5 h-5 rounded-full bg-gold-500 flex items-center justify-center text-pine-950 shadow">
+                              <Check className="w-3.5 h-3.5 stroke-[3]" />
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* 2. Visual Availability Calendar (Center Column) */}
+                <div className="lg:col-span-5 flex flex-col" id="live_availability_calendar_node">
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="font-display font-semibold text-lg text-cream-50 flex items-center gap-2">
+                      <span>2. Calendar Range</span>
+                    </h3>
+                    <div className="flex items-center gap-1">
+                      <button 
+                        onClick={prevMonth}
+                        className="p-1.5 rounded-lg border border-pine-800 bg-pine-950/60 hover:bg-pine-800 text-neutral-300 transition-colors"
+                        id="btn_prev_month"
+                      >
+                        <ChevronLeft className="w-4 h-4" />
+                      </button>
+                      <span className="px-3 py-1 text-xs font-display font-semibold text-gold-400 bg-pine-950 rounded-lg min-w-[110px] text-center">
+                        {currentMonth.toLocaleString('default', { month: 'long', year: 'numeric' })}
+                      </span>
+                      <button 
+                        onClick={nextMonth}
+                        className="p-1.5 rounded-lg border border-pine-800 bg-pine-950/60 hover:bg-pine-800 text-neutral-300 transition-colors"
+                        id="btn_next_month"
+                      >
+                        <ChevronRight className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Calendar Grid Container */}
+                  <div className="bg-pine-950/60 border border-pine-800 rounded-2xl p-4 flex-1 flex flex-col justify-between">
+                    <div>
+                      {/* Weekday Labels */}
+                      <div className="grid grid-cols-7 gap-1 text-center mb-2">
+                        {['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map((d) => (
+                          <span key={d} className="text-[10px] uppercase font-bold text-neutral-500 font-display">{d}</span>
+                        ))}
+                      </div>
+
+                      {/* Day Cells */}
+                      <div className="grid grid-cols-7 gap-1 text-center">
+                        {generateCurrentMonthDays().map((daySlot, idx) => {
+                          const dateStr = daySlot.dateStr;
+                          const cellClasses = getDayClasses(dateStr, daySlot.isCurrentMonth);
+                          return (
+                            <button
+                              key={`${dateStr}-${idx}`}
+                              onClick={() => handleDayClick(dateStr)}
+                              onMouseEnter={() => setHoveredDate(dateStr)}
+                              onMouseLeave={() => setHoveredDate(null)}
+                              disabled={isPastDate(dateStr) || getAvailableInventoryOnDate(selectedAcc.id, dateStr).available === 0}
+                              className={`aspect-square sm:aspect-auto sm:h-10 rounded-lg text-xs font-medium flex flex-col items-center justify-center transition-all ${cellClasses}`}
+                              id={`calendar_day_${dateStr}`}
+                            >
+                              <span className="text-xs">{daySlot.dayNum}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Legendary Keys */}
+                    <div className="mt-4 pt-4 border-t border-pine-800/60 flex items-center justify-around text-[10px] text-neutral-400" id="calendar_legends">
+                      <div className="flex items-center gap-1.5">
+                        <span className="w-2.5 h-2.5 rounded-full border border-neutral-700 bg-transparent" />
+                        <span>High Availability</span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="w-2.5 h-2.5 rounded-full bg-amber-500/20 border border-amber-500/40" />
+                        <span>Limited Spots</span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="w-2.5 h-2.5 rounded-full bg-rose-500/30 border border-rose-500/40" />
+                        <span>Sold Out</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 3. Selected Range Summary & Go-To Next Step Panel (Right Column) */}
+                <div className="lg:col-span-3 space-y-5" id="date_range_picker_panel">
+                  <h3 className="font-display font-semibold text-lg text-cream-50">3. Selection Details</h3>
+                  
+                  <div className="bg-pine-950/80 rounded-2xl p-5 border border-pine-800 space-y-4">
+                    {/* Accommodation showcase details */}
+                    <div>
+                      <span className="text-[10px] py-0.5 px-2 rounded-full font-bold bg-gold-500/10 text-gold-400 border border-gold-500/20 inline-block mb-1.5 font-display">
+                        CONFIRMED SELECTION
+                      </span>
+                      <h4 className="font-display font-bold text-cream-50 text-sm leading-snug">{selectedAcc.name}</h4>
+                      <div className="text-xs text-neutral-400 mt-1 flex items-center gap-1">
+                        <Users className="w-3.5 h-3.5" /> Room Capacity is {selectedAcc.capacity} Adults
+                      </div>
+                    </div>
+
+                    {/* Range Viewers */}
+                    <div className="grid grid-cols-2 gap-3 pt-3 border-t border-pine-800/60">
+                      <div className="p-2.5 rounded-xl bg-pine-900 border border-pine-800 text-center">
+                        <span className="text-[9px] uppercase font-semibold text-neutral-500 block">CHECK-IN</span>
+                        <span className="text-xs font-display font-medium text-cream-100">{checkIn ? new Date(checkIn).toLocaleDateString(undefined, {month:'short', day:'numeric'}) : '—'}</span>
+                      </div>
+                      <div className="p-2.5 rounded-xl bg-pine-900 border border-pine-800 text-center">
+                        <span className="text-[9px] uppercase font-semibold text-neutral-500 block">CHECK-OUT</span>
+                        <span className="text-xs font-display font-medium text-cream-100">{checkOut ? new Date(checkOut).toLocaleDateString(undefined, {month:'short', day:'numeric'}) : '—'}</span>
+                      </div>
+                    </div>
+
+                    {checkIn && !checkOut && (
+                      <div className="flex items-center gap-2 text-[11px] text-amber-300 bg-amber-500/10 p-2.5 border border-amber-500/20 rounded-xl leading-relaxed">
+                        <Info className="w-4 h-4 shrink-0 stroke-[2.5]" />
+                        <span>Select another date on the calendar to establish your departure checkout.</span>
+                      </div>
+                    )}
+
+                    {/* Guests selection counter */}
+                    {checkIn && checkOut && (
+                      <div className="pt-3 border-t border-pine-800/60 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-medium text-neutral-300">Staying Guests</span>
+                          <div className="flex items-center gap-3">
+                            <button
+                              type="button"
+                              onClick={() => setGuests(m => Math.max(1, m - 1))}
+                              className="w-7 h-7 rounded-lg border border-pine-800 bg-pine-900 flex items-center justify-center hover:bg-pine-800 text-cream-50"
+                              id="btn_decrement_guests"
+                            >
+                              <Minus className="w-3.5 h-3.5" />
+                            </button>
+                            <span className="text-sm font-display font-semibold text-cream-100 w-4 text-center">{guests}</span>
+                            <button
+                              type="button"
+                              onClick={() => setGuests(m => Math.min(selectedAcc.capacity, m + 1))}
+                              className="w-7 h-7 rounded-lg border border-pine-800 bg-pine-900 flex items-center justify-center hover:bg-pine-800 text-cream-50"
+                              id="btn_increment_guests"
+                            >
+                              <Plus className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                        {guests === selectedAcc.capacity && (
+                          <p className="text-[10px] text-right text-amber-400">Reached maximum allowed capacity threshold.</p>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Price Quote Panel */}
+                    {nightsCount > 0 && (
+                      <div className="pt-3 border-t border-pine-800/60 space-y-2">
+                        <div className="flex justify-between text-xs text-neutral-400 text-left">
+                          <span>₱{selectedAcc.price.toLocaleString()} × {nightsCount} nights</span>
+                          <span className="font-display font-medium text-cream-100">₱{basePrice.toLocaleString()}</span>
+                        </div>
+                        <div className="flex justify-between text-xs text-neutral-300 font-semibold pt-1 text-left">
+                          <span>Base Subtotal</span>
+                          <span className="text-gold-400">₱{basePrice.toLocaleString()}</span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  <button
+                    disabled={!checkIn || !checkOut}
+                    onClick={() => setBookingStep(2)}
+                    className={`w-full py-4 px-6 rounded-2xl flex items-center justify-center gap-2 font-display font-semibold text-sm transition-all shadow-md group ${
+                      checkIn && checkOut
+                        ? 'bg-gold-500 hover:bg-gold-400 text-pine-950 cursor-pointer hover:shadow-gold-500/20 hover:scale-[1.01]'
+                        : 'bg-pine-950 text-neutral-600 border border-pine-800 cursor-not-allowed'
+                    }`}
+                    id="btn_continue_to_step_2"
+                  >
+                    <span>Proceed to Extras</span>
+                    <ArrowRight className="w-4 h-4 transition-transform group-hover:translate-x-1" />
+                  </button>
+                </div>
+              </motion.div>
+            )}
+
+            {/* STEP 2: CHOOSE ADDONS & GUARANTEE RESERVATION */}
+            {bookingStep === 2 && (
+              <motion.form 
+                onSubmit={handleCreateBooking}
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="grid grid-cols-1 lg:grid-cols-12 gap-8"
+                id="booking_step_2_layout"
+              >
+                {/* AddOns Choice list (Left 7-columns) */}
+                <div className="lg:col-span-7 space-y-6" id="addons_preference_picker">
+                  <div>
+                    <h3 className="font-display font-semibold text-lg text-cream-50 flex items-center gap-2">
+                      <Sparkles className="w-5 h-5 text-gold-400" /> Choose Highland Extras
+                    </h3>
+                    <p className="text-xs text-neutral-400 mt-1">Enhance your Cordillera vacation log with custom campfire activity passes and native delicacies.</p>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    {addOnsCatalog.map((addon) => {
+                      const isPicked = selectedAddOns.some(a => a.id === addon.id);
+                      const qty = addOnQuantities[addon.id] || 1;
+                      return (
+                        <div
+                          key={addon.id}
+                          className={`p-4 rounded-2xl border text-left transition-all flex flex-col justify-between ${
+                            isPicked 
+                              ? 'bg-pine-850 border-gold-500' 
+                              : 'bg-pine-950/40 border-pine-800 hover:border-pine-700'
+                          }`}
+                          id={`addon_card_${addon.id}`}
+                        >
+                          <div className="space-y-2 cursor-pointer" onClick={() => handleToggleAddOn(addon)}>
+                            <div className="flex items-center justify-between">
+                              <span className="p-2 bg-pine-900 rounded-xl border border-pine-800 inline-block">
+                                {getAddOnIcon(addon.icon)}
+                              </span>
+                              {isPicked && (
+                                <span className="text-[9px] py-0.5 px-2 rounded-full font-bold bg-gold-500/10 text-gold-400 border border-gold-500/20">
+                                  ADDED
+                                </span>
+                              )}
+                            </div>
+                            <h4 className="font-display font-bold text-sm text-cream-50 leading-snug">{addon.name}</h4>
+                            <p className="text-[11px] text-neutral-400 leading-relaxed">{addon.description}</p>
+                          </div>
+
+                          <div className="mt-4 pt-3 border-t border-pine-800/40 flex items-center justify-between">
+                            <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+                              <span className="text-xs text-neutral-400 mr-2">Qty:</span>
+                              <button
+                                type="button"
+                                disabled={!isPicked}
+                                onClick={() => handleUpdateAddOnQuantity(addon.id, -1)}
+                                className={`w-6 h-6 rounded-lg flex items-center justify-center border text-xs font-bold transition-all ${
+                                  isPicked 
+                                    ? 'bg-pine-900 border-pine-750 hover:bg-pine-850 text-cream-50 cursor-pointer' 
+                                    : 'bg-neutral-900/20 border-neutral-850 text-neutral-600 cursor-not-allowed'
+                                }`}
+                              >
+                                <Minus className="w-3 h-3" />
+                              </button>
+                              <span className={`text-xs font-bold w-4 text-center ${isPicked ? 'text-cream-100' : 'text-neutral-500'}`}>{qty}</span>
+                              <button
+                                type="button"
+                                disabled={!isPicked}
+                                onClick={() => handleUpdateAddOnQuantity(addon.id, 1)}
+                                className={`w-6 h-6 rounded-lg flex items-center justify-center border text-xs font-bold transition-all ${
+                                  isPicked 
+                                    ? 'bg-pine-900 border-pine-750 hover:bg-pine-850 text-cream-50 cursor-pointer' 
+                                    : 'bg-neutral-900/20 border-neutral-850 text-neutral-600 cursor-not-allowed'
+                                }`}
+                              >
+                                <Plus className="w-3 h-3" />
+                              </button>
+                            </div>
+                            <span className="font-display font-bold text-xs text-gold-300">₱{addon.price}</span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Customer reservation form */}
+                  <div className="bg-pine-950/60 border border-pine-800 rounded-2xl p-6 space-y-4">
+                    <h3 className="font-display font-semibold text-base text-cream-50">Reservation Contact details</h3>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-[10px] uppercase font-bold text-neutral-400 mb-1.5 font-display">Full Guest Name</label>
+                        <input
+                          type="text"
+                          required
+                          value={customerName}
+                          onChange={(e) => setCustomerName(e.target.value)}
+                          placeholder="Juan Dela Cruz"
+                          className="w-full bg-pine-900 border border-pine-800 focus:border-gold-500 text-cream-50 px-4 py-3 rounded-xl text-xs outline-none transition-colors"
+                          id="input_customer_name"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] uppercase font-bold text-neutral-400 mb-1.5 font-display">Contact Phone Number</label>
+                        <input
+                          type="tel"
+                          required
+                          value={customerPhone}
+                          onChange={(e) => setCustomerPhone(e.target.value)}
+                          placeholder="0917XXXXXXX"
+                          className="w-full bg-pine-900 border border-pine-800 focus:border-gold-500 text-cream-50 px-4 py-3 rounded-xl text-xs outline-none transition-colors"
+                          id="input_customer_phone"
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-[10px] uppercase font-bold text-neutral-400 mb-1.5 font-display">Email Address</label>
+                      <input
+                        type="email"
+                        required
+                        value={customerEmail}
+                        onChange={(e) => setCustomerEmail(e.target.value)}
+                        placeholder="juan@gmail.com"
+                        className="w-full bg-pine-900 border border-pine-800 focus:border-gold-500 text-cream-50 px-4 py-3 rounded-xl text-xs outline-none transition-colors"
+                        id="input_customer_email"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] uppercase font-bold text-neutral-400 mb-1.5 font-display">Special Requirements & Meal notes (Optional)</label>
+                      <textarea
+                        value={notes}
+                        onChange={(e) => setNotes(e.target.value)}
+                        rows={2}
+                        placeholder="Tell us if you have dietary restrictions, demand heating blankets, or require pet spacing setups..."
+                        className="w-full bg-pine-900 border border-pine-800 focus:border-gold-500 text-cream-50 px-4 py-3 rounded-xl text-xs outline-none transition-colors resize-none"
+                        id="input_customer_notes"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* billing Checkout Invoice Breakdown (Right 5-columns) */}
+                <div className="lg:col-span-5" id="billing_invoice_pane">
+                  <div className="bg-pine-950/80 border border-pine-800 rounded-2xl p-6 space-y-6 sticky top-6">
+                    <h3 className="font-display font-semibold text-base text-cream-50 border-b border-pine-800 pb-3">
+                      Booking Guarantee Review
+                    </h3>
+
+                    {/* Room summary */}
+                    <div className="flex gap-4">
+                      {selectedAcc.imageUrl ? (
+                        <img src={selectedAcc.imageUrl} alt="" className="w-16 h-16 rounded-lg object-cover shrink-0" referrerPolicy="no-referrer" />
+                      ) : null}
+                      <div>
+                        <h4 className="font-display font-bold text-sm text-cream-50 leading-snug">{selectedAcc.name}</h4>
+                        <p className="text-[10px] text-neutral-400 mt-0.5">{nightsCount} Nights Stay ({checkIn} to {checkOut})</p>
+                        <p className="text-[10px] text-neutral-400 mt-1 flex items-center gap-1">
+                          <Users className="w-3 h-3 text-gold-400" /> {guests} Guests Accommodated
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Itemised prices */}
+                    <div className="space-y-3 pt-3 border-t border-pine-800">
+                      <div className="flex justify-between text-xs text-left">
+                        <span className="text-neutral-400">Base Rental Rate ({nightsCount} nights)</span>
+                        <span className="font-display font-semibold text-neutral-200">₱{basePrice.toLocaleString()}</span>
+                      </div>
+                      
+                      {selectedAddOns.length > 0 && (
+                        <div className="space-y-1.5">
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-neutral-500 font-display block">ADD-ONS SCHEDULE</span>
+                          {selectedAddOns.map(addon => {
+                            const qty = addOnQuantities[addon.id] || 1;
+                            return (
+                              <div key={addon.id} className="flex justify-between text-xs pl-2 border-l border-gold-500/20 text-left">
+                                <span className="text-neutral-400">{addon.name} (×{qty})</span>
+                                <span className="font-display text-neutral-300">₱{(addon.price * qty).toLocaleString()}</span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+
+                      <div className="flex justify-between text-xs pt-3 border-t border-pine-800 select-total-lines text-left">
+                        <span className="text-neutral-300 font-medium">Subtotal Amount</span>
+                        <span className="font-display font-bold text-neutral-100">₱{subTotal.toLocaleString()}</span>
+                      </div>
+
+                      <div className="flex justify-between text-xs text-left">
+                        <span className="text-neutral-400">Highland Eco-Vat (12%)</span>
+                        <span className="font-display text-neutral-300">₱{taxAmount.toLocaleString()}</span>
+                      </div>
+                    </div>
+
+                    {/* Payment Method Selector */}
+                    <div className="space-y-3 pt-3 border-t border-pine-800 text-left">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-neutral-500 font-display block">PAYMENT PORTAL</span>
+                      <div className="grid grid-cols-2 gap-3">
+                        <button
+                          type="button"
+                          onClick={() => setPaymentMethod('cash')}
+                          className={`p-3 rounded-xl border text-center transition-all cursor-pointer ${
+                            paymentMethod === 'cash'
+                              ? 'bg-gold-500/10 border-gold-500 text-gold-400'
+                              : 'bg-pine-950/40 border-pine-800 text-neutral-400 hover:border-pine-750'
+                          }`}
+                        >
+                          <span className="font-display font-bold text-[10px] uppercase block">CASH AT CHECK-IN</span>
+                          <span className="text-[9px] text-neutral-500 block mt-0.5">Pay on-site upon arrival</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setPaymentMethod('paymongo')}
+                          className={`p-3 rounded-xl border text-center transition-all cursor-pointer ${
+                            paymentMethod === 'paymongo'
+                              ? 'bg-gold-500/10 border-gold-500 text-gold-400'
+                              : 'bg-pine-950/40 border-pine-800 text-neutral-400 hover:border-pine-750'
+                          }`}
+                        >
+                          <span className="font-display font-bold text-[10px] uppercase block">PAY SECURELY NOW</span>
+                          <span className="text-[9px] text-neutral-500 block mt-0.5">Card, GCash, PayMaya</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Grand Total */}
+                    <div className="bg-pine-900 p-4 rounded-xl border border-gold-500/10 flex justify-between items-center text-left">
+                      <div>
+                        <span className="text-[9px] uppercase font-bold text-neutral-400 block font-display">GRAND TOTAL PHP</span>
+                        <span className="text-[10px] text-neutral-500 block">All rates are locked dynamically</span>
+                      </div>
+                      <span className="font-display font-bold text-xl text-gold-400">₱{grandTotal.toLocaleString()}</span>
+                    </div>
+
+                    <div className="space-y-3">
+                      {paymentMethod === 'paymongo' ? (
+                        <div className="flex items-start gap-2.5 bg-emerald-500/5 p-3 rounded-xl border border-emerald-500/15 leading-relaxed text-[11px] text-emerald-200 text-left">
+                          <Info className="w-4 h-4 shrink-0 text-emerald-500" />
+                          <span>PayMongo Checkout: We will redirect you to secure PayMongo checkout in a new tab to complete your payment with GCash, PayMaya, or Credit Card.</span>
+                        </div>
+                      ) : (
+                        <div className="flex items-start gap-2.5 bg-gold-500/5 p-3 rounded-xl border border-gold-500/15 leading-relaxed text-[11px] text-amber-200 text-left">
+                          <Info className="w-4 h-4 shrink-0 text-gold-500" />
+                          <span>Secure Cash Reservation: Pay at Valleypoint campsite front desk check-in. Cancellation or updates are free through the customer portal below.</span>
+                        </div>
+                      )}
+
+                      <div className="flex gap-3">
+                        <button
+                          type="button"
+                          onClick={() => setBookingStep(1)}
+                          className="flex-1 py-3 px-4 rounded-xl border border-pine-800 bg-pine-900 hover:bg-pine-800 text-neutral-300 font-display font-semibold text-xs transition-colors cursor-pointer"
+                        >
+                          Modify Dates
+                        </button>
+                        <button
+                          type="submit"
+                          disabled={isSubmitting}
+                          className="flex-3 py-3 px-6 rounded-xl bg-gold-500 hover:bg-gold-400 text-pine-950 font-display font-bold text-xs transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer"
+                        >
+                          {isSubmitting ? (
+                            <>
+                              <div className="w-4 h-4 border-2 border-pine-950 border-t-transparent rounded-full animate-spin" />
+                              <span>Securing Spots...</span>
+                            </>
+                          ) : (
+                            <>
+                              <span>Finish Reservation Ticket</span>
+                              <Check className="w-4 h-4 stroke-[2.5]" />
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </motion.form>
+            )}
+
+            {/* STEP 3: BOOKING CONFIRMED SUCCESS VOUCHER */}
+            {bookingStep === 3 && newBookingResult && (
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                className="max-w-2xl mx-auto py-8"
+                id="booking_step_3_layout"
+              >
+                <div className="bg-cream-100 rounded-3xl overflow-hidden shadow-2xl border-4 border-gold-500/30 text-pine-950 relative" id="ticket_voucher_card">
+                  {/* Notch highlights for tickets */}
+                  <div className="absolute top-1/2 -left-3 w-6 h-6 rounded-full bg-pine-900 border-r border-gold-500/20 -translate-y-1/2" />
+                  <div className="absolute top-1/2 -right-3 w-6 h-6 rounded-full bg-pine-900 border-l border-gold-500/20 -translate-y-1/2" />
+
+                  {/* Header */}
+                  <div className="bg-pine-950 text-cream-50 p-6 flex justify-between items-center border-b border-gold-500/20">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-full border border-gold-400 flex items-center justify-center p-1 bg-pine-900 shrink-0">
+                        <span className="font-display font-bold text-xs text-gold-400">VP</span>
+                      </div>
+                      <div>
+                        <h4 className="font-display font-extrabold text-sm tracking-wide text-gold-400">VALLEYPOINT CAMPSITE</h4>
+                        <span className="text-[10px] text-neutral-400 flex items-center gap-0.5 uppercase tracking-widest font-bold font-display"><MapPin className="w-3 h-3 text-gold-500" /> Tuba, Benguet</span>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <span className="text-[9px] uppercase font-bold text-neutral-400 block font-display">TICKET CODE</span>
+                      <span className="font-display font-bold text-base text-gold-400">{newBookingResult.id}</span>
+                    </div>
+                  </div>
+
+                  {/* Success banner details */}
+                  <div className="p-6 text-center border-b border-pine-950/10 space-y-2">
+                    {paymongoCheckoutUrl ? (
+                      <>
+                        <div className="w-12 h-12 rounded-full bg-amber-500/10 text-amber-600 flex items-center justify-center mx-auto mb-2 border border-amber-500/30 animate-pulse">
+                          <CreditCard className="w-6 h-6 stroke-[2.5]" />
+                        </div>
+                        <h3 className="font-serif font-bold text-xl text-pine-900">Secure Payment Required</h3>
+                        <p className="text-xs text-neutral-600 max-w-md mx-auto">
+                          We are securely holding your glamping dates, <span className="font-bold">{newBookingResult.customerName}</span>! Please complete your online payment of <span className="font-bold text-emerald-800">₱{newBookingResult.totalAmount.toLocaleString()}</span> to fully finalize your reservation.
+                        </p>
+                        <div className="pt-2 max-w-sm mx-auto">
+                          <a
+                            href={paymongoCheckoutUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center justify-center gap-2 w-full py-3 px-6 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-cream-50 font-display font-bold text-xs transition-colors shadow-md cursor-pointer"
+                          >
+                            <span>💳 Complete Secure Payment Now</span>
+                            <ExternalLink className="w-4 h-4" />
+                          </a>
+                          <span className="text-[10px] text-neutral-500 mt-1.5 block leading-relaxed">
+                            Clicking opens the official secure PayMongo gateway in a new tab. If a popup blocker stopped it, click the button above.
+                          </span>
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <div className="w-12 h-12 rounded-full bg-emerald-500/10 text-emerald-600 flex items-center justify-center mx-auto mb-2 border border-emerald-500/30">
+                          <Check className="w-6 h-6 stroke-[3]" />
+                        </div>
+                        <h3 className="font-serif font-bold text-xl text-pine-900">Highland Spot Secured!</h3>
+                        <p className="text-xs text-neutral-600 max-w-md mx-auto">
+                          Thank you, <span className="font-bold">{newBookingResult.customerName}</span>. Your glamping dates are securely held in our inventory. A booking overview has been cataloged under code <span className="font-bold text-gold-600">{newBookingResult.id}</span>.
+                        </p>
+                      </>
+                    )}
+                  </div>
+
+                  {/* Booking details table */}
+                  <div className="p-6 grid grid-cols-2 lg:grid-cols-4 gap-4 border-b border-dashed border-pine-950/20 text-left bg-cream-50">
+                    <div>
+                      <span className="text-[9px] uppercase font-bold text-neutral-500 block font-display">CHECK-IN DATE</span>
+                      <span className="font-display font-semibold text-xs text-pine-950">{new Date(newBookingResult.checkIn).toLocaleDateString(undefined, {month:'short', day:'numeric', year:'numeric'})}</span>
+                    </div>
+                    <div>
+                      <span className="text-[9px] uppercase font-bold text-neutral-500 block font-display">CHECK-OUT DATE</span>
+                      <span className="font-display font-semibold text-xs text-pine-950">{new Date(newBookingResult.checkOut).toLocaleDateString(undefined, {month:'short', day:'numeric', year:'numeric'})}</span>
+                    </div>
+                    <div>
+                      <span className="text-[9px] uppercase font-bold text-neutral-500 block font-display">ACCOMMODATION</span>
+                      <span className="font-display font-semibold text-xs text-pine-950 truncate block">{accommodations.find(a => a.id === newBookingResult.accommodationId)?.name}</span>
+                    </div>
+                    <div>
+                      <span className="text-[9px] uppercase font-bold text-neutral-500 block font-display">GUEST STATUS</span>
+                      <span className="font-display font-semibold text-xs text-pine-950">{newBookingResult.guestsCount} Adults staying</span>
+                    </div>
+                  </div>
+
+                  {/* Costing on ticket */}
+                  <div className="p-6 space-y-4">
+                    <div className="flex justify-between items-center">
+                      <div>
+                        <span className="text-[10px] uppercase font-bold text-neutral-500 block font-display">GUEST DETAILS</span>
+                        <span className="text-xs font-semibold">{newBookingResult.customerPhone} | {newBookingResult.customerEmail}</span>
+                      </div>
+                      <div className="text-right">
+                        <span className="text-[10px] uppercase font-bold text-neutral-500 block font-display">GUARANTEED TOTAL RATE</span>
+                        <span className="font-display font-bold text-lg text-emerald-800">₱{newBookingResult.totalAmount.toLocaleString()}</span>
+                      </div>
+                    </div>
+
+                    {newBookingResult.notes && (
+                      <div className="p-3 bg-neutral-900/5 rounded-xl border border-neutral-900/10 text-[11px] text-neutral-600 italic text-left">
+                        <span className="font-bold uppercase text-[9px] text-neutral-500 block font-display not-italic">Guest Request:</span>
+                        "{newBookingResult.notes}"
+                      </div>
+                    )}
+
+                    {/* Add-ons list on ticket */}
+                    {newBookingResult.addOns && newBookingResult.addOns.length > 0 && (
+                      <div className="space-y-1">
+                        <span className="text-[9px] uppercase font-bold text-neutral-500 block font-display text-left">INCLUDED PRE-ORDERS:</span>
+                        <div className="flex flex-wrap gap-2">
+                          {newBookingResult.addOns.map((addon: any, idx) => {
+                            const qtyStr = addon.quantity ? ` (×${addon.quantity})` : '';
+                            return (
+                              <span key={idx} className="text-[10px] py-1 px-2.5 rounded-lg bg-pine-950 text-gold-400 font-medium border border-pine-900">
+                                {addon.name}{qtyStr}
+                              </span>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* QR barcode graphics placeholder */}
+                  <div className="bg-neutral-900/5 px-6 py-4 flex items-center justify-between border-t border-pine-950/10">
+                    <div className="flex items-center gap-3">
+                      {/* Barcode styling using nested flex with thin/thick CSS bars */}
+                      <div className="flex items-center gap-[2px] bg-white p-2.5 rounded border border-neutral-300">
+                        {[2,1,3,1,4,1,2,3,1,2,1,3,4,1,2,1,3,1,2,3].map((w, i) => (
+                          <div key={i} className="bg-black h-8" style={{ width: `${w}px` }} />
+                        ))}
+                      </div>
+                      <span className="text-[8px] font-mono text-neutral-500 tracking-widest uppercase">VP-RESERVATION-CODE-VERIFIED</span>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => window.print()}
+                      className="py-2 px-3.5 rounded-xl bg-pine-950 text-cream-50 hover:bg-pine-900 font-display font-semibold text-xs transition-colors flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <Printer className="w-3.5 h-3.5" /> Print Ticket Voucher
+                    </button>
+                  </div>
+                </div>
+
+                <div className="text-center mt-6">
+                  <button
+                    onClick={() => {
+                      setCheckIn('');
+                      setCheckOut('');
+                      setSelectedAddOns([]);
+                      setNotes('');
+                      setCustomerName('');
+                      setCustomerPhone('');
+                      setCustomerEmail('');
+                      setPaymongoCheckoutUrl('');
+                      setPaymentMethod('cash');
+                      setAddOnQuantities({});
+                      setBookingStep(1);
+                    }}
+                    className="py-3 px-6 rounded-2xl bg-pine-800 text-cream-50 hover:bg-pine-700 transition-colors text-xs font-display font-semibold cursor-pointer"
+                  >
+                    Set Up Another Camp Stay
+                  </button>
+                </div>
+              </motion.div>
+            )}
+          </div>
+        )}
+
+        {/* --- VERIFY & MANAGE EXISTING RESERVATIONS TAB --- */}
+        {activeSubTab === 'manage' && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className="max-w-2xl mx-auto py-4 space-y-6"
+            id="manage_tab_node"
+          >
+            <div className="space-y-2 text-center">
+              <h3 className="font-display font-semibold text-xl text-cream-50">Highland Booking Audit Centre</h3>
+              <p className="text-xs text-neutral-400">Search for your dates slot log, reschedule activities, or process cancellation packages safely.</p>
+            </div>
+
+            <form onSubmit={handleSearchBooking} className="flex gap-2 max-w-md mx-auto" id="manage_search_form">
+              <input
+                type="text"
+                value={searchBookingRef}
+                onChange={(e) => setSearchBookingRef(e.target.value)}
+                placeholder="Ex: VP-8429, VP-1123..."
+                className="flex-1 bg-pine-950 border border-pine-800 focus:border-gold-500 text-cream-50 px-4 py-3 rounded-xl text-xs outline-none transition-colors"
+                id="search_booking_input"
+              />
+              <button
+                type="submit"
+                className="py-3 px-6 rounded-xl bg-gold-500 hover:bg-gold-400 text-pine-950 font-display font-bold text-xs transition-colors"
+                id="search_booking_button"
+              >
+                Search Record
+              </button>
+            </form>
+
+            {searchError && (
+              <div className="p-3 bg-rose-500/10 border border-rose-500/20 text-rose-300 rounded-xl flex items-center justify-center gap-2 text-xs max-w-md mx-auto">
+                <AlertCircle className="w-4 h-4 shrink-0" />
+                <span>{searchError}</span>
+              </div>
+            )}
+
+            {/* Display queried booking cards */}
+            <AnimatePresence mode="wait">
+              {searchedBooking && (
+                <motion.div
+                  key={searchedBooking.id}
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -10 }}
+                  className="bg-pine-950/80 rounded-2xl border border-pine-800 p-6 space-y-5 text-left"
+                  id={`query_result_${searchedBooking.id}`}
+                >
+                  <div className="flex justify-between items-start border-b border-pine-800 pb-4">
+                    <div>
+                      <span className="text-[9px] uppercase font-semibold text-neutral-500 leading-none">RESERVATION REFEREE</span>
+                      <h4 className="font-display font-bold text-cream-50 mt-1">{searchedBooking.customerName}</h4>
+                      <p className="text-[10px] text-neutral-400 mt-1">{searchedBooking.customerEmail} | {searchedBooking.customerPhone}</p>
+                    </div>
+
+                    <div className="text-right">
+                      <span className="text-[10px] uppercase font-bold text-neutral-400 block font-display">STATUS CODE</span>
+                      <span className={`text-[10px] font-bold py-1 px-2.5 rounded-full inline-block mt-1 ${
+                        searchedBooking.status === 'confirmed' 
+                          ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30' 
+                          : 'bg-rose-500/15 text-rose-300 border border-rose-500/30'
+                      }`}>
+                        {searchedBooking.status.toUpperCase()}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-4 py-1 text-xs">
+                    <div>
+                      <span className="text-[10px] text-neutral-500 block">Accommodations type</span>
+                      <span className="font-medium text-cream-200">{accommodations.find(a => a.id === searchedBooking.accommodationId)?.name || 'Default Site'}</span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-neutral-500 block">Booked Range</span>
+                      <span className="font-medium text-cream-200">{searchedBooking.checkIn} to {searchedBooking.checkOut}</span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-neutral-500 block">Total guaranteed price</span>
+                      <span className="font-display font-bold text-gold-400">₱{searchedBooking.totalAmount.toLocaleString()}</span>
+                    </div>
+                  </div>
+
+                  {searchedBooking.status === 'confirmed' && (
+                    <div className="flex justify-end gap-3 pt-3 border-t border-pine-800/60" id="query_actions">
+                      <button
+                        type="button"
+                        onClick={() => handleCancelBooking(searchedBooking.id)}
+                        className="py-2.5 px-4 rounded-xl bg-rose-500/10 hover:bg-rose-500 text-rose-300 hover:text-white border border-rose-500/30 font-display font-semibold text-xs transition-all flex items-center justify-center gap-1.5"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" /> Request Spot Release
+                      </button>
+                    </div>
+                  )}
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            {/* Quick stats for test reference keys */}
+            <div className="bg-pine-900/50 p-4 rounded-2xl border border-pine-800 max-w-md mx-auto text-center text-xs space-y-2 text-neutral-400">
+              <span className="font-display font-bold text-gold-500 text-xs flex items-center justify-center gap-1">
+                <Info className="w-3.5 h-3.5" /> Testing Reference Identifiers
+              </span>
+              <p className="leading-relaxed text-[11px]">
+                To test the management interface, copy-paste one of our initialized systems: <br />
+                <span className="font-mono bg-pine-950 px-1.5 py-0.5 rounded text-amber-300 font-bold">VP-8429</span> or <span className="font-mono bg-pine-950 px-1.5 py-0.5 rounded text-amber-300 font-bold">VP-1123</span>
+              </p>
+            </div>
+          </motion.div>
+        )}
+      </div>
+    </div>
+  );
+}

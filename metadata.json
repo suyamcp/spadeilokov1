@@ -1,0 +1,6 @@
+{
+  "name": "Valleypoint Campsite",
+  "description": "A premium glamping campsite and cafe in Tuba, Benguet. Features responsive bookings, a live availability calendar, menus, and activity logs.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

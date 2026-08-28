@@ -1,0 +1,63 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Playfair+Display:ital,wght@0,400;0,600;0,700;1,400&family=Space+Grotesk:wght@400;500;600;700&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", system-ui, -apple-system, sans-serif;
+  --font-serif: "Playfair Display", Georgia, serif;
+  --font-display: "Space Grotesk", sans-serif;
+
+  --color-pine-950: #020f07;
+  --color-pine-900: #051a0e;
+  --color-pine-850: #082414;
+  --color-pine-800: #062c15;
+  --color-pine-700: #0e4424;
+  --color-pine-600: #165b32;
+  --color-pine-500: #1e7a44;
+  --color-pine-400: #29a35c;
+  --color-pine-300: #49c47e;
+  --color-pine-200: #88e0ae;
+  --color-pine-100: #c3f3d7;
+  
+  --color-gold-600: #a87e2a;
+  --color-gold-500: #c9a054;
+  --color-gold-400: #e0bb73;
+  --color-gold-300: #ebd29b;
+  --color-gold-200: #f5e7c4;
+
+  --color-cream-50: #fcfcf9;
+  --color-cream-100: #faf9f2;
+  --color-cream-200: #f4f2e3;
+  --color-cream-300: #ebe8cd;
+  --color-cream-400: #ded9b1;
+}
+
+/* Custom scrollbars inside the application */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #051a0e;
+}
+::-webkit-scrollbar-thumb {
+  background: #c9a054;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #e0bb73;
+}
+
+/* Glow effects and animation classes */
+@keyframes pulse-glow {
+  0%, 100% {
+    box-shadow: 0 0 5px rgba(201, 160, 84, 0.4), 0 0 10px rgba(201, 160, 84, 0.2);
+  }
+  50% {
+    box-shadow: 0 0 15px rgba(201, 160, 84, 0.8), 0 0 25px rgba(201, 160, 84, 0.4);
+  }
+}
+
+.neon-btn-glow {
+  animation: pulse-glow 3s infinite;
+}
+
