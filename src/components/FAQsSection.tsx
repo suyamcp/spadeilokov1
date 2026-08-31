@@ -1,10 +1,131 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { HelpCircle, ChevronDown, BookOpen, Warehouse, HeartHandshake, ShieldAlert } from 'lucide-react';
+import { HelpCircle, ChevronDown, BookOpen, Warehouse, HeartHandshake, ShieldAlert, Sparkles, Send, Loader2 } from 'lucide-react';
 import { FAQ } from '../types';
 
 interface FAQsSectionProps {
   faqs: FAQ[];
+}
+
+type ChatMsg = { role: 'user' | 'model'; text: string };
+
+const SUGGESTED_QUESTIONS = [
+  'How much is a night in the luxury cabin?',
+  'How do I pay for my booking?',
+  'What activities can we do there?',
+  'How do I get to Valleypoint from Baguio?',
+];
+
+function FaqAssistant() {
+  const [messages, setMessages] = useState<ChatMsg[]>([]);
+  const [input, setInput] = useState('');
+  const [loading, setLoading] = useState(false);
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
+  }, [messages, loading]);
+
+  const send = (text: string) => {
+    const q = text.trim();
+    if (!q || loading) return;
+    setMessages(m => [...m, { role: 'user', text: q }]);
+    setInput('');
+    setLoading(true);
+
+    fetch('/api/faq-chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: q }),
+    })
+      .then(res => res.json())
+      .then((data: any) => {
+        setMessages(m => [...m, { role: 'model', text: data.reply || "Sorry, I couldn't answer that. Please contact the campsite directly." }]);
+      })
+      .catch(() => {
+        setMessages(m => [...m, { role: 'model', text: 'Something went wrong reaching the assistant. Please try again shortly.' }]);
+      })
+      .finally(() => setLoading(false));
+  };
+
+  return (
+    <div className="mt-16 max-w-3xl mx-auto" id="faq_ai_assistant">
+      <div className="bg-pine-950/50 border border-pine-800 rounded-3xl overflow-hidden shadow-2xl">
+        <div className="p-5 border-b border-pine-800 flex items-center gap-3 bg-pine-950/60">
+          <div className="w-9 h-9 rounded-xl bg-gold-500/15 border border-gold-500/30 flex items-center justify-center text-gold-400 shrink-0">
+            <Sparkles className="w-4.5 h-4.5" />
+          </div>
+          <div>
+            <h3 className="font-display font-bold text-sm text-cream-100">Ask Valleypoint</h3>
+            <p className="text-[11px] text-neutral-400">Instant answers about rates, rooms, activities, booking &amp; directions — straight from our latest info.</p>
+          </div>
+        </div>
+
+        <div ref={scrollRef} className="max-h-[360px] overflow-y-auto p-5 space-y-4">
+          {messages.length === 0 && (
+            <div className="space-y-3">
+              <p className="text-xs text-neutral-400">Try asking:</p>
+              <div className="flex flex-wrap gap-2">
+                {SUGGESTED_QUESTIONS.map(s => (
+                  <button
+                    key={s}
+                    onClick={() => send(s)}
+                    className="text-[11px] py-1.5 px-3 rounded-full bg-pine-900 border border-pine-800 text-neutral-300 hover:border-gold-500/50 hover:text-gold-300 transition-colors"
+                  >
+                    {s}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {messages.map((m, i) => (
+            <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+              <div className={`max-w-[85%] rounded-2xl px-3.5 py-2.5 text-xs leading-relaxed whitespace-pre-wrap ${
+                m.role === 'user'
+                  ? 'bg-gold-500 text-pine-950 font-medium rounded-br-sm'
+                  : 'bg-pine-900 border border-pine-800 text-neutral-200 rounded-bl-sm'
+              }`}>
+                {m.text}
+              </div>
+            </div>
+          ))}
+
+          {loading && (
+            <div className="flex justify-start">
+              <div className="bg-pine-900 border border-pine-800 text-neutral-400 rounded-2xl rounded-bl-sm px-3.5 py-2.5 text-xs flex items-center gap-2">
+                <Loader2 className="w-3.5 h-3.5 animate-spin" /> Thinking…
+              </div>
+            </div>
+          )}
+        </div>
+
+        <form
+          onSubmit={e => { e.preventDefault(); send(input); }}
+          className="p-4 border-t border-pine-800 flex gap-2 bg-pine-950/60"
+        >
+          <input
+            type="text"
+            value={input}
+            onChange={e => setInput(e.target.value)}
+            placeholder="Type your question…"
+            maxLength={1000}
+            className="flex-1 bg-pine-900 border border-pine-800 focus:border-gold-500 text-cream-50 px-4 py-2.5 rounded-xl text-xs outline-none transition-colors"
+          />
+          <button
+            type="submit"
+            disabled={loading || !input.trim()}
+            className="py-2.5 px-4 rounded-xl bg-gold-500 hover:bg-gold-400 disabled:opacity-40 text-pine-950 font-display font-bold text-xs transition-all flex items-center gap-1.5 shrink-0"
+          >
+            <Send className="w-3.5 h-3.5" />
+          </button>
+        </form>
+      </div>
+      <p className="text-[10px] text-neutral-600 text-center mt-3">
+        Answers come from Valleypoint's current site info. For bookings and confirmations, please use the reservation portal or contact the campsite.
+      </p>
+    </div>
+  );
 }
 
 export default function FAQsSection({ faqs }: FAQsSectionProps) {
@@ -133,6 +254,9 @@ export default function FAQsSection({ faqs }: FAQsSectionProps) {
           </div>
 
         </div>
+
+        {/* AI assistant */}
+        <FaqAssistant />
 
       </div>
     </section>

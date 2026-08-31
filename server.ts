@@ -1,3 +1,4 @@
+import "dotenv/config";
 import express from "express";
 import path from "path";
 import fs from "fs";
@@ -6,24 +7,179 @@ import crypto from "crypto";
 import { createServer as createViteServer } from "vite";
 import { eq, and, or, lt, gt, sql } from 'drizzle-orm';
 import { db } from './src/db/index.ts';
-import { 
-  bookings, guests, bookingRooms, rooms, adminSettings, payments, 
-  adminSessions, siteContent, addOns, bookingAddOns, roomTypes
+import {
+  bookings, guests, bookingRooms, rooms, adminSettings, payments,
+  adminSessions, siteContent, addOns, bookingAddOns, roomTypes,
+  visitors, visitEvents
 } from './src/db/schema.ts';
 import { initializeApp as initAdmin, getApps as getAdminApps } from 'firebase-admin/app';
 import { getStorage as getAdminStorage } from 'firebase-admin/storage';
-
-declare global {
-  namespace Express {
-    interface Request {
-      rawBody?: Buffer;
-    }
-  }
-}
+import nodemailer from 'nodemailer';
 
 async function getRoomTypeBySlug(slug: string) {
   const [rt] = await db.select().from(roomTypes).where(eq(roomTypes.slug, slug)).limit(1);
   return rt;
+}
+
+// ==========================================
+// MANUAL PAYMENT: instructions + email
+// ==========================================
+
+const DEFAULT_PAYMENT_INSTRUCTIONS = {
+  headline: 'Send your payment to confirm this reservation',
+  accounts: [
+    { method: 'GCash', accountName: 'Valleypoint Campsite', accountNumber: '0917-XXX-XXXX', qrImageUrl: '' },
+    { method: 'Maya', accountName: 'Valleypoint Campsite', accountNumber: '0917-XXX-XXXX', qrImageUrl: '' },
+    { method: 'Bank Transfer (BDO)', accountName: 'Valleypoint Campsite Inc.', accountNumber: '0000-0000-0000', qrImageUrl: '' },
+  ],
+  proofEmail: 'payments@valleypoint.example',
+  note: 'Pay the full amount shown on your ticket using any option above, then email a clear screenshot or photo of your payment receipt (with your reference code) to the address above. Your reservation is confirmed once we verify your payment, usually within 24 hours. Unverified reservations may be released after 48 hours.',
+};
+
+async function getPaymentInstructions(): Promise<typeof DEFAULT_PAYMENT_INSTRUCTIONS> {
+  try {
+    const [row] = await db.select().from(siteContent).where(eq(siteContent.key, 'payment_instructions')).limit(1);
+    if (row?.value) {
+      const parsed = JSON.parse(row.value);
+      return { ...DEFAULT_PAYMENT_INSTRUCTIONS, ...parsed };
+    }
+  } catch (err) {
+    console.error('Failed to read payment_instructions, using defaults:', err);
+  }
+  return DEFAULT_PAYMENT_INSTRUCTIONS;
+}
+
+async function seedPaymentInstructionsIfNeeded() {
+  try {
+    const [row] = await db.select().from(siteContent).where(eq(siteContent.key, 'payment_instructions')).limit(1);
+    if (!row) {
+      await db.insert(siteContent).values({
+        key: 'payment_instructions',
+        value: JSON.stringify(DEFAULT_PAYMENT_INSTRUCTIONS),
+        updatedAt: new Date(),
+      });
+      console.log('✓ Seeded default payment instructions.');
+    }
+  } catch (err) {
+    console.error('Failed to seed payment instructions:', err);
+  }
+}
+
+// SMTP transport is optional. Without SMTP_HOST configured, emails are skipped (booking still succeeds).
+function getMailer() {
+  const host = process.env.SMTP_HOST;
+  if (!host) return null;
+  return nodemailer.createTransport({
+    host,
+    port: Number(process.env.SMTP_PORT || 587),
+    secure: process.env.SMTP_SECURE === 'true',
+    auth: process.env.SMTP_USER
+      ? { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS }
+      : undefined,
+  });
+}
+
+const peso = (n: number) => `PHP ${Number(n || 0).toLocaleString('en-PH', { minimumFractionDigits: 2 })}`;
+
+function buildGuestEmail(ticket: any, instr: typeof DEFAULT_PAYMENT_INSTRUCTIONS) {
+  const accountLines = instr.accounts
+    .filter(a => a.accountName || a.accountNumber)
+    .map(a => `  • ${a.method}: ${a.accountName} — ${a.accountNumber}`)
+    .join('\n');
+  const addOnLines = (ticket.addOns || []).length
+    ? '\nAdd-ons:\n' + ticket.addOns.map((a: any) => `  • ${a.name} x${a.quantity} — ${peso(a.price * a.quantity)}`).join('\n')
+    : '';
+
+  const text = `Hi ${ticket.customerName},
+
+Thank you for reserving with Valleypoint Campsite. Your reservation is HELD but NOT YET CONFIRMED — it is confirmed once we verify your payment.
+
+RESERVATION
+  Reference:      ${ticket.reference}
+  Accommodation:  ${ticket.accommodationName}
+  Check-in:       ${ticket.checkIn}
+  Check-out:      ${ticket.checkOut}
+  Nights:         ${ticket.nights}
+  Guests:         ${ticket.guestsCount}${addOnLines}
+  AMOUNT DUE:     ${peso(ticket.amountDue)}
+
+HOW TO PAY
+${instr.headline}
+${accountLines}
+
+${instr.note}
+
+Send your proof of payment to: ${instr.proofEmail}
+Include your reference code ${ticket.reference} in the email.
+
+— Valleypoint Campsite, Tuba, Benguet`;
+
+  return { subject: `Valleypoint reservation ${ticket.reference} — payment instructions`, text };
+}
+
+async function sendConfirmationEmail(bookingId: number) {
+  const mailer = getMailer();
+  if (!mailer) {
+    console.log(`[email skipped — SMTP not configured] would send confirmation for booking ${bookingId}`);
+    return;
+  }
+  const [row] = await db.select({
+    reference: bookings.reference,
+    firstName: guests.firstName,
+    lastName: guests.lastName,
+    email: guests.email,
+    roomTypeName: roomTypes.name,
+    checkInDate: bookingRooms.checkInDate,
+    checkOutDate: bookingRooms.checkOutDate,
+    totalCost: bookingRooms.totalCost,
+  })
+    .from(bookings)
+    .innerJoin(guests, eq(bookings.guestId, guests.id))
+    .innerJoin(bookingRooms, eq(bookingRooms.bookingId, bookings.id))
+    .innerJoin(rooms, eq(bookingRooms.roomId, rooms.id))
+    .innerJoin(roomTypes, eq(rooms.roomTypeId, roomTypes.id))
+    .where(eq(bookings.id, bookingId))
+    .limit(1);
+  if (!row) return;
+
+  const from = process.env.SMTP_FROM || process.env.SMTP_USER || 'no-reply@valleypoint.example';
+  const name = `${row.firstName} ${row.lastName}`.trim();
+  const text = `Hi ${name},
+
+Good news — your payment has been verified and your Valleypoint Campsite reservation is CONFIRMED.
+
+  Reference:      ${row.reference}
+  Accommodation:  ${row.roomTypeName}
+  Check-in:       ${row.checkInDate}
+  Check-out:      ${row.checkOutDate}
+
+Please bring this reference code with you at check-in. See you in the mountains!
+
+— Valleypoint Campsite, Tuba, Benguet`;
+
+  await mailer.sendMail({ from, to: row.email, subject: `Your Valleypoint reservation ${row.reference} is confirmed`, text });
+}
+
+async function sendReservationEmails(ticket: any, instr: typeof DEFAULT_PAYMENT_INSTRUCTIONS) {
+  const mailer = getMailer();
+  if (!mailer) {
+    console.log(`[email skipped — SMTP not configured] would send payment instructions for ${ticket.reference} to ${ticket.customerEmail}`);
+    return;
+  }
+  const from = process.env.SMTP_FROM || process.env.SMTP_USER || 'no-reply@valleypoint.example';
+  const guest = buildGuestEmail(ticket, instr);
+
+  await mailer.sendMail({ from, to: ticket.customerEmail, subject: guest.subject, text: guest.text });
+
+  // Staff heads-up so someone knows to watch for the proof of payment.
+  if (instr.proofEmail) {
+    await mailer.sendMail({
+      from,
+      to: instr.proofEmail,
+      subject: `New pending reservation ${ticket.reference} — awaiting payment`,
+      text: `New reservation held, awaiting payment verification.\n\nReference: ${ticket.reference}\nGuest: ${ticket.customerName} (${ticket.customerEmail}, ${ticket.customerPhone})\nAccommodation: ${ticket.accommodationName}\nDates: ${ticket.checkIn} to ${ticket.checkOut} (${ticket.nights} night/s)\nGuests: ${ticket.guestsCount}\nAmount due: ${peso(ticket.amountDue)}\n\nConfirm it in the admin panel once the proof of payment arrives.`,
+    });
+  }
 }
 
 async function getRoomTypeById(id: number) {
@@ -52,13 +208,8 @@ async function startServer() {
   const app = express();
   const PORT = 3000;
 
-  // Support large base64 image payloads for file uploads and capture rawBody for webhook signatures
-  app.use(express.json({ 
-    limit: '50mb',
-    verify: (req: express.Request, _res, buf) => {
-      req.rawBody = buf;
-    }
-  }));
+  // Support large base64 image payloads for file uploads
+  app.use(express.json({ limit: '50mb' }));
   app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
   // Load firebase configuration safely
@@ -150,8 +301,36 @@ async function startServer() {
     }
   }
 
+  // Self-healing creation of the analytics tables (so no manual migration step is needed).
+  async function ensureAnalyticsTables() {
+    try {
+      await db.execute(sql`
+        CREATE TABLE IF NOT EXISTS "visitors" (
+          "visitor_id" varchar(64) PRIMARY KEY NOT NULL,
+          "created_at" timestamp DEFAULT now() NOT NULL,
+          "last_seen_at" timestamp DEFAULT now() NOT NULL,
+          "page_views" integer DEFAULT 1 NOT NULL
+        );
+      `);
+      await db.execute(sql`
+        CREATE TABLE IF NOT EXISTS "visit_events" (
+          "id" serial PRIMARY KEY NOT NULL,
+          "visitor_id" varchar(64) NOT NULL,
+          "path" varchar(300),
+          "is_new_visitor" integer DEFAULT 0 NOT NULL,
+          "created_at" timestamp DEFAULT now() NOT NULL
+        );
+      `);
+      await db.execute(sql`CREATE INDEX IF NOT EXISTS "idx_visit_events_created" ON "visit_events" ("created_at");`);
+    } catch (err) {
+      console.error('Failed to ensure analytics tables:', err);
+    }
+  }
+
   await seedRoomTypesAndRooms();
   await seedDefaultAdminIfNeeded();
+  await seedPaymentInstructionsIfNeeded();
+  await ensureAnalyticsTables();
 
   // ==========================================
   // API ROUTES
@@ -269,6 +448,210 @@ async function startServer() {
     }
   });
 
+  // ==========================================
+  // ANONYMOUS VISITOR TRACKING (consent-gated on the client)
+  // ==========================================
+
+  const VISITOR_ID_RE = /^[A-Za-z0-9_-]{8,64}$/;
+
+  // Called by the site on each page load ONLY after the visitor accepts analytics cookies.
+  app.post('/api/track', async (req, res) => {
+    try {
+      let visitorId: string | null =
+        typeof req.body?.visitorId === 'string' && VISITOR_ID_RE.test(req.body.visitorId)
+          ? req.body.visitorId
+          : null;
+      const path = String(req.body?.path || '/').slice(0, 300);
+
+      let isNew = false;
+
+      if (visitorId) {
+        const existing = await db.select({ id: visitors.visitorId }).from(visitors).where(eq(visitors.visitorId, visitorId)).limit(1);
+        if (existing.length === 0) {
+          isNew = true;
+          await db.insert(visitors).values({ visitorId, pageViews: 1 }).onConflictDoNothing();
+        } else {
+          await db.update(visitors)
+            .set({ lastSeenAt: new Date(), pageViews: sql`${visitors.pageViews} + 1` })
+            .where(eq(visitors.visitorId, visitorId));
+        }
+      } else {
+        // No usable id from the browser — mint one server-side and hand it back to be stored.
+        visitorId = crypto.randomBytes(16).toString('hex');
+        isNew = true;
+        await db.insert(visitors).values({ visitorId, pageViews: 1 }).onConflictDoNothing();
+      }
+
+      await db.insert(visitEvents).values({ visitorId, path, isNewVisitor: isNew ? 1 : 0 });
+
+      res.json({ visitorId, isNew });
+    } catch (error) {
+      console.error('Visitor tracking failed:', error);
+      res.status(200).json({ ok: false }); // never break the page over analytics
+    }
+  });
+
+  // Visitor analytics for the admin dashboard.
+  app.get('/api/admin/analytics', requireAdmin, async (req, res) => {
+    try {
+      const q = async (text: any) => (await db.execute(text) as any).rows;
+
+      const [totals] = await q(sql`
+        SELECT
+          (SELECT count(*) FROM visitors) AS total_unique,
+          (SELECT count(*) FROM visitors WHERE (created_at AT TIME ZONE 'Asia/Manila')::date = (now() AT TIME ZONE 'Asia/Manila')::date) AS unique_today,
+          (SELECT count(*) FROM visitors WHERE created_at >= now() - interval '7 days') AS unique_7d,
+          (SELECT count(*) FROM visitors WHERE created_at >= now() - interval '30 days') AS unique_30d,
+          (SELECT count(*) FROM visit_events) AS pageviews_total,
+          (SELECT count(*) FROM visit_events WHERE (created_at AT TIME ZONE 'Asia/Manila')::date = (now() AT TIME ZONE 'Asia/Manila')::date) AS pageviews_today,
+          (SELECT count(*) FROM visit_events WHERE created_at >= now() - interval '7 days') AS pageviews_7d
+      `);
+
+      const daily = await q(sql`
+        SELECT to_char((created_at AT TIME ZONE 'Asia/Manila')::date, 'YYYY-MM-DD') AS day,
+               count(*) FILTER (WHERE is_new_visitor = 1) AS new_visitors,
+               count(*) AS page_views
+        FROM visit_events
+        WHERE created_at >= now() - interval '14 days'
+        GROUP BY 1
+        ORDER BY 1
+      `);
+
+      const recent = await q(sql`
+        SELECT visitor_id, to_char(created_at, 'YYYY-MM-DD HH24:MI') AS first_seen,
+               to_char(last_seen_at, 'YYYY-MM-DD HH24:MI') AS last_seen, page_views
+        FROM visitors
+        ORDER BY last_seen_at DESC
+        LIMIT 15
+      `);
+
+      res.json({
+        totalUnique: Number(totals.total_unique || 0),
+        uniqueToday: Number(totals.unique_today || 0),
+        unique7d: Number(totals.unique_7d || 0),
+        unique30d: Number(totals.unique_30d || 0),
+        pageViewsTotal: Number(totals.pageviews_total || 0),
+        pageViewsToday: Number(totals.pageviews_today || 0),
+        pageViews7d: Number(totals.pageviews_7d || 0),
+        daily: daily.map((d: any) => ({ day: d.day, newVisitors: Number(d.new_visitors), pageViews: Number(d.page_views) })),
+        recentVisitors: recent.map((r: any) => ({
+          visitorId: r.visitor_id,
+          firstSeen: r.first_seen,
+          lastSeen: r.last_seen,
+          pageViews: Number(r.page_views),
+        })),
+      });
+    } catch (error) {
+      console.error('Failed to load analytics:', error);
+      res.status(500).json({ error: 'Failed to load visitor analytics.' });
+    }
+  });
+
+  // Public booking lookup by reference — powers the "manage booking" search.
+  // The reference code acts as the shared secret (same trust model as the cancel endpoint).
+  app.get('/api/bookings/lookup', async (req, res) => {
+    const reference = String(req.query.reference || '').trim().toUpperCase();
+    if (!reference) {
+      return res.status(400).json({ error: 'A booking reference is required.' });
+    }
+    try {
+      const rows = await db.select({
+        reference: bookings.reference,
+        status: bookings.status,
+        specialRequests: bookings.specialRequests,
+        bookingDate: bookings.bookingDate,
+        firstName: guests.firstName,
+        lastName: guests.lastName,
+        email: guests.email,
+        phone: guests.phoneNumber,
+        roomTypeName: roomTypes.name,
+        roomTypeSlug: roomTypes.slug,
+        checkInDate: bookingRooms.checkInDate,
+        checkOutDate: bookingRooms.checkOutDate,
+        guestCount: bookingRooms.guestCount,
+        totalCost: bookingRooms.totalCost,
+      })
+      .from(bookings)
+      .innerJoin(guests, eq(bookings.guestId, guests.id))
+      .innerJoin(bookingRooms, eq(bookingRooms.bookingId, bookings.id))
+      .innerJoin(rooms, eq(bookingRooms.roomId, rooms.id))
+      .innerJoin(roomTypes, eq(rooms.roomTypeId, roomTypes.id))
+      .where(eq(bookings.reference, reference))
+      .limit(1);
+
+      if (rows.length === 0) {
+        return res.status(404).json({ error: 'No reservation found for that reference.' });
+      }
+      const b = rows[0];
+
+      const aoRows = await db.select({
+        name: addOns.name,
+        quantity: bookingAddOns.quantity,
+        actualPrice: bookingAddOns.actualPrice,
+      })
+      .from(bookingAddOns)
+      .innerJoin(bookings, eq(bookingAddOns.bookingId, bookings.id))
+      .innerJoin(addOns, eq(bookingAddOns.addOnId, addOns.id))
+      .where(eq(bookings.reference, reference));
+
+      const payRows = await db.select({ paymentStatus: payments.paymentStatus })
+        .from(payments)
+        .innerJoin(bookings, eq(payments.bookingId, bookings.id))
+        .where(eq(bookings.reference, reference))
+        .limit(1);
+
+      const addOnsTotal = aoRows.reduce((sum, x) => sum + Number(x.actualPrice) * x.quantity, 0);
+      const grandTotal = Number(b.totalCost) + addOnsTotal;
+
+      res.json({
+        reference: b.reference,
+        status: b.status,
+        paymentStatus: payRows[0]?.paymentStatus || 'pending',
+        customerName: `${b.firstName} ${b.lastName}`.trim(),
+        customerEmail: b.email,
+        customerPhone: b.phone || '',
+        accommodationName: b.roomTypeName,
+        accommodationSlug: b.roomTypeSlug,
+        checkIn: b.checkInDate,
+        checkOut: b.checkOutDate,
+        guestsCount: b.guestCount,
+        addOns: aoRows.map(x => ({ name: x.name, quantity: x.quantity, price: Number(x.actualPrice) })),
+        totalAmount: grandTotal,
+        amountDue: grandTotal,
+        notes: b.specialRequests || undefined,
+        createdAt: b.bookingDate ? b.bookingDate.toISOString() : null,
+        paymentInstructions: await getPaymentInstructions(),
+      });
+    } catch (error) {
+      console.error('Failed to look up booking:', error);
+      res.status(500).json({ error: 'Failed to look up reservation.' });
+    }
+  });
+
+  // Release a still-unpaid reservation (guest changed their mind before paying).
+  app.post('/api/bookings/release', async (req, res) => {
+    const reference = String(req.body?.reference || '').trim().toUpperCase();
+    if (!reference) {
+      return res.status(400).json({ error: 'A booking reference is required.' });
+    }
+    try {
+      const rows = await db.select().from(bookings).where(eq(bookings.reference, reference)).limit(1);
+      if (rows.length === 0) {
+        return res.status(404).json({ error: 'Reservation not found.' });
+      }
+      // Only release reservations that never got paid — never touch a confirmed booking.
+      if (rows[0].status === 'pending') {
+        await db.update(bookings)
+          .set({ status: 'cancelled', updatedAt: new Date() })
+          .where(eq(bookings.id, rows[0].id));
+      }
+      res.json({ success: true, status: rows[0].status === 'pending' ? 'cancelled' : rows[0].status });
+    } catch (error) {
+      console.error('Failed to release booking:', error);
+      res.status(500).json({ error: 'Failed to release reservation.' });
+    }
+  });
+
   // Public CMS site content endpoint
   app.get('/api/content', async (req, res) => {
     try {
@@ -340,6 +723,187 @@ async function startServer() {
     } catch (error) {
       console.error('Failed to get add-ons catalog:', error);
       res.status(500).json({ error: 'Failed to load add-ons.' });
+    }
+  });
+
+  // ==========================================
+  // FAQ HELP BOT — rule-based, reads the live site content each request (no external AI).
+  // Update a price/room/service in the admin panel and the bot's answers change automatically.
+  // ==========================================
+
+  async function loadSiteKnowledge() {
+    const contentRows = await db.select().from(siteContent);
+    const c: Record<string, any> = {};
+    for (const r of contentRows) {
+      try { c[r.key] = JSON.parse(r.value); } catch { c[r.key] = r.value; }
+    }
+    const rts = await db.select().from(roomTypes);
+    const catalog = await db.select().from(addOns);
+    const pay = await getPaymentInstructions();
+    return { c, rts, catalog, pay };
+  }
+
+  const BOT_STOPWORDS = new Set(
+    'a an the is are am was were be been do does did i you we they it he she to of for in on at and or my our your how what when where which who whats can could would should will want know about me please tell give there their has have had with as this that these those'.split(' ')
+  );
+  // Fold common phrasings so "wi-fi", "internet", "dog" etc. all match the right FAQ.
+  const botNorm = (s: string) =>
+    s.toLowerCase()
+      .replace(/wi[\s-]?fi/g, 'wifi')
+      .replace(/\b(internet|connection|starlink)\b/g, 'wifi')
+      .replace(/\b(dogs?|cats?|puppy|puppies|kitten|animals?|fur\s?bab(y|ies))\b/g, 'pet')
+      .replace(/\b(climate|weather|temperature|chilly|freezing|forecast)\b/g, 'cold');
+  const botTokens = (s: string) =>
+    botNorm(s).replace(/[^a-z0-9\s]/g, ' ').split(/\s+/).filter(w => w && !BOT_STOPWORDS.has(w));
+  // `q` is space-padded & single-spaced. Single-word keywords match whole words only
+  // (so "eat" doesn't fire on "w-eat-her"); multi-word keywords match as a phrase.
+  const qHas = (q: string, words: string[]) =>
+    words.some(w => (w.includes(' ') ? q.includes(w) : q.includes(` ${w} `)));
+  const bp = (n: any) => `₱${Number(n || 0).toLocaleString()}`;
+
+  function answerRooms(k: any, q: string): string | null {
+    if (!qHas(q, ['price', 'prices', 'cost', 'costs', 'rate', 'rates', 'how much', 'room', 'rooms', 'cabin', 'tent', 'glamping', 'glamp', 'pitch', 'pitching', 'accommodation', 'accommodations', 'stay', 'night', 'nightly', 'per night', 'sleep', 'sleeps', 'capacity', 'pax', 'guest', 'guests', 'cheapest', 'budget', 'expensive', 'lodging'])) return null;
+
+    const rts: any[] = k.rts || [];
+    // Prefer the prices/details the admin edits in the Accommodations tab (siteContent);
+    // fall back to the room_types table if the CMS hasn't been filled in.
+    const cmsAcc: any[] = Array.isArray(k.c.accommodations)
+      ? k.c.accommodations.filter((a: any) => a?.name && Number(a.price) > 0)
+      : [];
+    let rooms: any[] = cmsAcc.length
+      ? cmsAcc.map((a: any) => ({
+          name: a.name,
+          price: Number(a.price),
+          capacity: Number(a.capacity) || Number(rts.find(r => r.slug === a.id)?.capacity) || 0,
+          features: Array.isArray(a.features) ? a.features : [],
+        }))
+      : rts.map(r => ({ name: r.name, price: Number(r.baseRate), capacity: Number(r.capacity), features: [] as string[] }));
+    if (!rooms.length) return null;
+
+    let list = rooms;
+    if (q.includes('cabin') || q.includes('loft') || q.includes('glass')) list = rooms.filter(r => /cabin/i.test(r.name));
+    else if (q.includes('glamp') || q.includes('dome') || q.includes('suite')) list = rooms.filter(r => /glamp/i.test(r.name));
+    else if (q.includes('pitch') || q.includes('own tent') || q.includes('campground')) list = rooms.filter(r => /pitch|adventure/i.test(r.name));
+    if (!list.length) list = rooms;
+
+    const fmt = (r: any) => {
+      const feat = r.features.length ? ` Includes: ${r.features.slice(0, 4).join(', ')}.` : '';
+      const cap = r.capacity ? `, good for up to ${r.capacity} guest${r.capacity === 1 ? '' : 's'}` : '';
+      return `• ${r.name} — ${bp(r.price)} per night${cap}.${feat}`;
+    };
+
+    if (qHas(q, ['cheap', 'cheapest', 'budget', 'lowest', 'affordable', 'least expensive']) && rooms.length > 1) {
+      const min = [...rooms].sort((a, b) => a.price - b.price)[0];
+      return `Our most affordable option is the ${min.name} at ${bp(min.price)} per night. All options:\n${rooms.map(fmt).join('\n')}\n\nRates are per night — the total depends on how many nights you stay.`;
+    }
+    const head = list.length === 1 ? 'Here are the details:' : 'Here are our accommodations and current rates:';
+    return `${head}\n${list.map(fmt).join('\n')}\n\nRates are per night — the total depends on how many nights you stay.`;
+  }
+
+  function answerAddOns(k: any, q: string): string | null {
+    if (!qHas(q, ['add-on', 'addon', 'add on', 'add-ons', 'addons', 'extras', 'firewood', 'marshmallow', 'breakfast platter'])) return null;
+    const cat: any[] = k.catalog || [];
+    if (!cat.length) return `Optional extras (like bonfire kits or breakfast platters) can be arranged. Any available add-ons will show up during booking, or you can ask our staff.`;
+    return `Add-ons you can include with your booking:\n${cat.map(a => `• ${a.name} — ${bp(a.price)}${a.description ? `: ${a.description}` : ''}`).join('\n')}`;
+  }
+
+  function answerServices(k: any, q: string): string | null {
+    if (!qHas(q, ['activity', 'activities', 'things to do', 'what to do', 'do there', 'service', 'services', 'cafe', 'coffee', 'restaurant', 'food', 'eat', 'dining', 'archery', 'darts', 'hiking', 'amenities', 'offered', 'offer'])) return null;
+    const services: any[] = Array.isArray(k.c.services) ? k.c.services.filter((s: any) => s?.name) : [];
+    if (!services.length) return null;
+    return `Here's what Valleypoint offers:\n${services.map((s: any) => `• ${s.name}${s.price ? ` (${s.price})` : ''} — ${s.description || ''}`.trim()).join('\n')}`;
+  }
+
+  function answerPayment(k: any, q: string): string | null {
+    if (!qHas(q, ['pay', 'payment', 'payments', 'gcash', 'maya', 'paymaya', 'bank', 'transfer', 'deposit', 'downpayment', 'down payment', 'reserve', 'book', 'booking', 'how to book', 'confirm', 'confirmed', 'proof', 'receipt', 'mode of payment'])) return null;
+    const pay = k.pay;
+    const accts = (pay.accounts || []).filter((a: any) => a.method || a.accountNumber);
+    const acctLines = accts.length
+      ? accts.map((a: any) => `   • ${a.method}: ${a.accountName || ''}${a.accountNumber ? ' — ' + a.accountNumber : ''}`).join('\n')
+      : '   • Payment account details appear on your reservation ticket.';
+    return `Here's how booking and payment work:\n` +
+      `1. Choose your dates and room on this site and fill in your details.\n` +
+      `2. You'll get a reservation ticket showing the amount to pay (the full amount).\n` +
+      `3. Send payment via any of these:\n${acctLines}\n` +
+      `4. Email your proof of payment to ${pay.proofEmail} with your reference code.\n` +
+      `Your reservation is confirmed once our staff verify the payment (usually within 24 hours).`;
+  }
+
+  function answerLocation(k: any, q: string): string | null {
+    if (!qHas(q, ['where', 'location', 'located', 'address', 'direction', 'directions', 'get to', 'getting there', 'how to get', 'from baguio', 'baguio', 'commute', 'far', 'map', 'near'])) return null;
+    const a = k.c.about || {};
+    const faqs: any[] = Array.isArray(k.c.faqs) ? k.c.faqs : [];
+    const dirFaq = faqs.find((f: any) => /get to|reach|directions?|from baguio|how do we get/i.test(f.question || ''));
+    const bits: string[] = ['Valleypoint Campsite is in Tuba, Benguet — about 15 minutes from downtown Baguio City.'];
+    if (dirFaq?.answer) {
+      bits.push(dirFaq.answer);
+    } else if (a.desc1) {
+      bits.push(a.desc1);
+    }
+    if (a.elevation && !bits.join(' ').includes(a.elevation)) bits.push(`Elevation: ${a.elevation}.`);
+    if (a.latitude || a.longitude) bits.push(`Coordinates: ${[a.latitude, a.longitude].filter(Boolean).join(', ')}.`);
+    return bits.join(' ');
+  }
+
+  function answerAbout(k: any, q: string): string | null {
+    if (!qHas(q, ['what is valleypoint', 'about valleypoint', 'tell me', 'who are you', 'what are you'])) return null;
+    const h = k.c.hero || {}; const a = k.c.about || {};
+    return h.description || a.desc1 || 'Valleypoint Campsite is a premium glamping and camping site in Tuba, Benguet, offering glass-front cabins, glamping tents, and pitching sites.';
+  }
+
+  function answerFromFaqs(k: any, q: string): string | null {
+    const faqs: any[] = Array.isArray(k.c.faqs) ? k.c.faqs : [];
+    if (!faqs.length) return null;
+    const qt = [...new Set(botTokens(q))];
+    if (!qt.length) return null;
+    let best: any = null; let bestScore = 0;
+    for (const f of faqs) {
+      const qWords = new Set(botTokens(f.question || ''));
+      const aWords = new Set(botTokens(f.answer || ''));
+      let score = 0;
+      for (const t of qt) {
+        if (qWords.has(t)) score += 2;
+        else if (aWords.has(t)) score += 1;
+      }
+      if (score > bestScore) { bestScore = score; best = f; }
+    }
+    // 1-2 word questions ("wifi?", "pets?") only need one solid hit; longer ones need more.
+    const threshold = qt.length <= 2 ? 2 : 3;
+    return best && bestScore >= threshold ? String(best.answer) : null;
+  }
+
+  function botReply(k: any, message: string): string {
+    const lower = message.toLowerCase();
+    const q = ' ' + lower.replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim() + ' ';
+
+    if (/^\s*(hi|hello|hey|yo|good (morning|afternoon|evening)|kumusta|kamusta)\b/.test(lower)) {
+      return "Hi! I can help with room rates, what's included, activities, how to book and pay, and directions. What would you like to know?";
+    }
+    if (qHas(q, ['thank', 'thanks', 'salamat'])) return "You're welcome! Anything else about Valleypoint?";
+
+    const blocks: string[] = [];
+    for (const fn of [answerRooms, answerAddOns, answerServices, answerPayment, answerLocation, answerAbout]) {
+      const r = fn(k, q);
+      if (r) blocks.push(r);
+    }
+    if (blocks.length) return blocks.slice(0, 3).join('\n\n');
+
+    const faq = answerFromFaqs(k, q);
+    if (faq) return faq;
+
+    return "I'm not sure about that one. I can help with:\n• Room options and current rates\n• What's included and activities offered\n• How to book and pay\n• Directions from Baguio\n\nTry rewording your question, or contact Valleypoint Campsite directly for anything else.";
+  }
+
+  app.post('/api/faq-chat', async (req, res) => {
+    const message = String(req.body?.message || '').trim();
+    if (!message) return res.status(400).json({ error: 'Message is required.' });
+    if (message.length > 500) return res.status(400).json({ error: 'Message is too long.' });
+    try {
+      const knowledge = await loadSiteKnowledge();
+      res.json({ reply: botReply(knowledge, message) });
+    } catch (error) {
+      console.error('FAQ bot failed:', error);
+      res.json({ reply: "Sorry, I'm having trouble right now. Please try again shortly, or contact Valleypoint Campsite directly." });
     }
   });
 
@@ -454,7 +1018,6 @@ async function startServer() {
       accommodationId,
       guestsCount,
       selectedAddOns = [], // array of { id: number, quantity: number }
-      paymentMethod = 'cash', // 'cash' or 'paymongo'
       notes
     } = req.body;
 
@@ -565,8 +1128,8 @@ async function startServer() {
           }).where(eq(guests.id, guestId));
         }
 
-        // 8. Create booking
-        const initialBookingStatus = (paymentMethod === 'paymongo') ? 'pending' : 'confirmed';
+        // 8. Create booking — held as 'pending' until staff verify the guest's payment proof, then confirm.
+        const initialBookingStatus = 'pending';
         const newBooking = await tx.insert(bookings).values({
           reference,
           guestId,
@@ -598,14 +1161,13 @@ async function startServer() {
           });
         }
 
-        // 11. Create Payments record
-        const initialPayStatus = (paymentMethod === 'paymongo') ? 'pending' : 'completed';
+        // 11. Create Payments record — full amount, paid manually via bank/e-wallet transfer, verified by staff.
         await tx.insert(payments).values({
           bookingId,
           amount: String(grandTotal),
           currency: 'PHP',
-          paymentMethod,
-          paymentStatus: initialPayStatus,
+          paymentMethod: 'manual_transfer',
+          paymentStatus: 'pending',
         });
 
         return {
@@ -613,101 +1175,46 @@ async function startServer() {
           reference,
           grandTotal,
           roomName: rt[0].name,
+          totalNights,
           addOnsList,
           status: initialBookingStatus,
         };
       });
 
-      // Transaction successfully committed! Let's handle PayMongo checkout now
-      if (paymentMethod === 'paymongo') {
-        const paymongoKey = process.env.PAYMONGO_SECRET_KEY;
-        if (!paymongoKey) {
-          return res.status(400).json({ 
-            error: 'PayMongo secret key is missing. Please contact campsite administrator or choose CASH payment.' 
-          });
-        }
+      // Reservation is committed and holding the slot. Build the ticket + payment instructions,
+      // email the guest the payment details, and notify staff. Email failures never block the booking.
+      const instructions = await getPaymentInstructions();
+      const addOnsForClient = result.addOnsList.map((a: any) => ({
+        name: a.name,
+        quantity: a.quantity,
+        price: a.actualPrice,
+      }));
 
-        const requestOrigin = req.headers.origin || req.headers.referer || 'http://localhost:3000';
-
-        // Prepare line items in cents (e.g., PHP 10.00 is 1000 cents)
-        const lineItems = [
-          {
-            name: `Campsite Accommodation: ${result.roomName}`,
-            amount: Math.round(Number(result.grandTotal - result.addOnsList.reduce((sum, x) => sum + (x.actualPrice * x.quantity), 0)) * 100),
-            currency: 'PHP',
-            quantity: 1,
-          }
-        ];
-
-        for (const ao of result.addOnsList) {
-          lineItems.push({
-            name: `Add-on: ${ao.name}`,
-            amount: Math.round(ao.actualPrice * 100),
-            currency: 'PHP',
-            quantity: ao.quantity,
-          });
-        }
-
-        try {
-          const authString = Buffer.from(paymongoKey + ':').toString('base64');
-          const response = await fetch('https://api.paymongo.com/v1/checkout_sessions', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Basic ${authString}`,
-            },
-            body: JSON.stringify({
-              data: {
-                attributes: {
-                  line_items: lineItems,
-                  payment_method_types: ['card', 'gcash', 'paymaya'],
-                  send_email_receipt: true,
-                  metadata: {
-                    booking_id: String(result.bookingId),
-                    reference: result.reference,
-                  },
-                  success_url: `${requestOrigin}/booking-success?reference=${result.reference}`,
-                  cancel_url: `${requestOrigin}/booking-cancel`,
-                }
-              }
-            })
-          });
-
-          const data: any = await response.json();
-          if (data.errors) {
-            console.error('PayMongo Checkout Session creation failed with errors:', data.errors);
-            throw new Error(data.errors[0]?.detail || 'PayMongo API error');
-          }
-
-          const checkoutUrl = data.data?.attributes?.checkout_url;
-          if (!checkoutUrl) {
-            throw new Error('Checkout URL not returned by PayMongo.');
-          }
-
-          return res.json({
-            id: String(result.bookingId),
-            reference: result.reference,
-            checkoutUrl,
-            isCash: false,
-            totalAmount: result.grandTotal,
-            status: result.status,
-          });
-        } catch (payError: any) {
-          console.error('PayMongo execution failed:', payError);
-          // Rollback booking by deleting it so the user can re-attempt (as we can't rollback the committed transaction)
-          await db.delete(bookings).where(eq(bookings.id, result.bookingId));
-          return res.status(500).json({ error: `Failed to create payment checkout session: ${payError.message}` });
-        }
-      }
-
-      // Cash option committed successfully
-      res.json({
+      const ticket = {
         id: String(result.bookingId),
         reference: result.reference,
-        isCash: true,
-        totalAmount: result.grandTotal,
         status: result.status,
-      });
+        customerName,
+        customerEmail,
+        customerPhone: customerPhone || '',
+        accommodationName: result.roomName,
+        accommodationSlug: accommodationId,
+        checkIn,
+        checkOut,
+        nights: result.totalNights,
+        guestsCount: guestsCount || 1,
+        addOns: addOnsForClient,
+        totalAmount: result.grandTotal,
+        amountDue: result.grandTotal,
+        notes: notes || undefined,
+        paymentInstructions: instructions,
+      };
+
+      sendReservationEmails(ticket, instructions).catch(err =>
+        console.error('Reservation email dispatch failed (booking still saved):', err)
+      );
+
+      return res.json(ticket);
 
     } catch (error: any) {
       if (error.message === 'CONCURRENCY_CONFLICT') {
@@ -721,56 +1228,25 @@ async function startServer() {
     }
   });
 
-  // PayMongo Webhook listener (With signature verification, correct payload mapping, and review-pending workflow)
-  app.post('/api/webhooks/paymongo', async (req: express.Request, res: express.Response) => {
+  // Mark a booking's payment as verified/received (Admin only) — used after checking the guest's proof of payment.
+  app.post('/api/bookings/:id/mark-paid', requireAdmin, async (req, res) => {
+    const bookingId = Number(req.params.id);
     try {
-      const signatureHeader = req.headers['paymongo-signature'] as string | undefined;
-      if (!signatureHeader || !req.rawBody) {
-        return res.status(400).json({ error: 'Missing signature or body.' });
-      }
+      await db.update(bookings)
+        .set({ status: 'confirmed', updatedAt: new Date() })
+        .where(eq(bookings.id, bookingId));
+      await db.update(payments)
+        .set({ paymentStatus: 'completed', updatedAt: new Date() })
+        .where(eq(payments.bookingId, bookingId));
+      res.json({ success: true });
 
-      const parts = Object.fromEntries(signatureHeader.split(',').map(p => p.split('=')));
-      const { t, te, li } = parts;
-      const signatureToCompare = te || li;
-
-      const signedPayload = `${t}.${req.rawBody.toString('utf8')}`;
-      const expectedSignature = crypto
-        .createHmac('sha256', process.env.PAYMONGO_WEBHOOK_SECRET || '')
-        .update(signedPayload)
-        .digest('hex');
-
-      if (expectedSignature !== signatureToCompare) {
-        console.warn('PayMongo webhook signature mismatch — discarding.');
-        return res.status(400).json({ error: 'Invalid signature.' });
-      }
-
-      const payload = req.body;
-      const eventType = payload?.data?.attributes?.type;
-
-      if (eventType === 'checkout_session.payment.paid') {
-        const session = payload?.data?.attributes?.data; // CHANGED — was `.resource`, PayMongo actually nests it under `.data`
-        const bookingIdStr = session?.attributes?.metadata?.booking_id;
-        const paymentsList = session?.attributes?.payments || [];
-        const transactionId = paymentsList[0]?.id || null;
-
-        if (!bookingIdStr) {
-          console.error('PayMongo webhook: no booking_id in metadata, payload was:', JSON.stringify(payload));
-          return res.status(200).json({ received: true }); // acknowledge anyway, it's not PayMongo's fault
-        }
-
-        const bookingId = Number(bookingIdStr);
-        await db.update(bookings)
-          .set({ status: 'paid_pending_review', updatedAt: new Date() }) // CHANGED — was 'confirmed'; a human needs to review this, not skip straight past
-          .where(eq(bookings.id, bookingId));
-        await db.update(payments)
-          .set({ paymentStatus: 'completed', transactionId, updatedAt: new Date() })
-          .where(eq(payments.bookingId, bookingId));
-      }
-
-      res.status(200).json({ received: true });
-    } catch (webhookError) {
-      console.error('PayMongo webhook handler failed:', webhookError);
-      res.status(500).json({ error: 'Webhook processing failed.' });
+      // Best-effort "your reservation is confirmed" email to the guest.
+      sendConfirmationEmail(bookingId).catch(err =>
+        console.error('Confirmation email failed (booking still confirmed):', err)
+      );
+    } catch (error) {
+      console.error('Failed to mark booking as paid:', error);
+      res.status(500).json({ error: 'Failed to update payment status.' });
     }
   });
 

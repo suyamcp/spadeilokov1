@@ -15,13 +15,12 @@ import {
   Sparkles, 
   AlertCircle, 
   ArrowRight,
-  Printer,
   Info,
   CalendarCheck,
   MapPin,
   Trash2,
-  CreditCard,
-  ExternalLink
+  Moon,
+  Printer
 } from 'lucide-react';
 import { Accommodation, AddOn, Booking } from '../types';
 import { ACCOMMODATIONS, ADD_ONS } from '../data';
@@ -105,11 +104,9 @@ export default function BookingSystem({
   const [selectedAddOns, setSelectedAddOns] = useState<AddOn[]>([]);
   const [notes, setNotes] = useState<string>('');
 
-  // PayMongo and Add-on Quantity State
-  const [paymentMethod, setPaymentMethod] = useState<'cash' | 'paymongo'>('cash');
+  // Add-on Quantity State
   const [addOnQuantities, setAddOnQuantities] = useState<Record<string, number>>({});
   const [addOnsCatalog, setAddOnsCatalog] = useState<AddOn[]>([]);
-  const [paymongoCheckoutUrl, setPaymongoCheckoutUrl] = useState<string>('');
 
   // Fetch dynamic add-ons on load
   useEffect(() => {
@@ -138,8 +135,8 @@ export default function BookingSystem({
   const [customerName, setCustomerName] = useState<string>('');
   const [customerEmail, setCustomerEmail] = useState<string>('');
   const [customerPhone, setCustomerPhone] = useState<string>('');
-  const [bookingStep, setBookingStep] = useState<number>(1); // 1: Cabin & Dates, 2: Add-Ons & Details, 3: Success Voucher
-  const [newBookingResult, setNewBookingResult] = useState<Booking | null>(null);
+  const [bookingStep, setBookingStep] = useState<number>(1); // 1: Dates & Lodging, 2: Details, 3: Reservation Ticket
+  const [newBookingResult, setNewBookingResult] = useState<any>(null);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   
   // Custom interactive tab for user to view booking status
@@ -148,80 +145,8 @@ export default function BookingSystem({
   const [searchedBooking, setSearchedBooking] = useState<Booking | null>(null);
   const [searchError, setSearchError] = useState<string>('');
 
-  // --- INITIALIZE & SYNC ---
-  useEffect(() => {
-    // 1. Initialise localStorage bookings if empty with realistic occupancy helper
-    const stored = localStorage.getItem('valleypoint_bookings');
-    if (stored) {
-      setBookings(JSON.parse(stored));
-    } else {
-      // Mock existing bookings for real live calendar availability demonstrations
-      const mockBookings: Booking[] = [
-        {
-          id: 'VP-8429',
-          customerName: 'Aries Santos',
-          customerEmail: 'aries@example.com',
-          customerPhone: '09171234567',
-          checkIn: '2026-06-20',
-          checkOut: '2026-06-22',
-          accommodationId: 'luxury-cabin',
-          guestsCount: 2,
-          totalAmount: 11347.76,
-          addOns: [{ id: 'bonfire-kit', name: 'Private Bonfire Log & Marshmallow Kit', price: 450 }],
-          status: 'confirmed',
-          createdAt: '2026-06-10T14:30:00Z'
-        },
-        {
-          id: 'VP-1123',
-          customerName: 'Clara Villa',
-          customerEmail: 'clara@example.com',
-          customerPhone: '09189876543',
-          checkIn: '2026-06-20',
-          checkOut: '2026-06-21',
-          accommodationId: 'luxury-cabin',
-          guestsCount: 2,
-          totalAmount: 5598.88,
-          addOns: [],
-          status: 'confirmed',
-          createdAt: '2026-06-12T09:15:00Z'
-        },
-        // Fill out standard pitching spots to show "Limited" warning
-        {
-          id: 'VP-9034',
-          customerName: 'Sam Ramos',
-          customerEmail: 'sam@example.com',
-          customerPhone: '09192233445',
-          checkIn: '2026-06-24',
-          checkOut: '2026-06-25',
-          accommodationId: 'standard-pitching',
-          guestsCount: 2,
-          totalAmount: 1344.00,
-          addOns: [],
-          status: 'confirmed',
-          createdAt: '2026-06-15T11:00:00Z'
-        }
-      ];
-      // Create identical helper bookings to exhaust inventory of luxury cabin on June 20-22 (quantity = 4)
-      for (let i = 1; i < 4; i++) {
-        mockBookings.push({
-          id: `VP-MOCK-${i}`,
-          customerName: `Guest ${i}`,
-          customerEmail: `guest${i}@example.com`,
-          customerPhone: '09123456789',
-          checkIn: '2026-06-20',
-          checkOut: '2026-06-22',
-          accommodationId: 'luxury-cabin',
-          guestsCount: 2,
-          totalAmount: 9998.00,
-          addOns: [],
-          status: 'confirmed',
-          createdAt: '2026-06-14T08:00:00Z'
-        });
-      }
-      localStorage.setItem('valleypoint_bookings', JSON.stringify(mockBookings));
-      setBookings(mockBookings);
-    }
-  }, []);
+  // The calendar reads real occupancy straight from the `bookings` prop, which the
+  // parent keeps in sync with the server's live availability. No local mock data.
 
   // Update selection if prop changes
   useEffect(() => {
@@ -372,9 +297,7 @@ export default function BookingSystem({
     return total + (addon.price * qty);
   }, 0);
   const subTotal = basePrice + addOnsPrice;
-  const serviceChargeAndTaxFraction = 0.12; // 12% Highland eco-conservation tax & service vat
-  const taxAmount = subTotal * serviceChargeAndTaxFraction;
-  const grandTotal = subTotal + taxAmount;
+  const grandTotal = subTotal;
 
   // Toggle addons
   const handleToggleAddOn = (addon: AddOn) => {
@@ -423,7 +346,6 @@ export default function BookingSystem({
         accommodationId: selectedAcc.id,
         guestsCount: guests,
         selectedAddOns: selectedAddOns.map(ao => ({ id: Number(ao.id) || 1, quantity: addOnQuantities[ao.id] || 1 })),
-        paymentMethod,
         notes,
       }),
     })
@@ -436,43 +358,15 @@ export default function BookingSystem({
       return res.json();
     })
     .then((result: any) => {
-      // Create a booking object for UI compatibility
-      const mockResult: Booking = {
-        id: result.reference || result.id || 'VP-TEMP',
-        customerName,
-        customerEmail,
-        customerPhone,
-        checkIn,
-        checkOut,
-        accommodationId: selectedAcc.id,
-        guestsCount: guests,
-        totalAmount: result.totalAmount || parseFloat(grandTotal.toFixed(2)),
-        addOns: selectedAddOns.map(ao => ({ 
-          id: ao.id, 
-          name: ao.name, 
-          price: ao.price,
-          quantity: addOnQuantities[ao.id] || 1
-        })),
-        status: (result.status === 'pending') ? 'pending' : 'confirmed',
-        createdAt: new Date().toISOString()
-      };
-
-      const updatedBookings = [mockResult, ...bookings];
-      localStorage.setItem('valleypoint_bookings', JSON.stringify(updatedBookings));
-      setBookings(updatedBookings);
-      setNewBookingResult(mockResult);
-      
-      if (result.checkoutUrl) {
-        setPaymongoCheckoutUrl(result.checkoutUrl);
-        // Automatically open the PayMongo checkout URL in a new tab to avoid iframe constraints
-        window.open(result.checkoutUrl, '_blank', 'noopener,noreferrer');
-      } else {
-        setPaymongoCheckoutUrl('');
-      }
-
+      // Reservation is held as "pending". Show the ticket with payment instructions;
+      // staff confirm it once the guest emails proof of payment.
+      setNewBookingResult(result);
       setIsSubmitting(false);
-      setBookingStep(3); // Go to voucher screen
-      
+      setBookingStep(3);
+      // Bring the ticket itself into view (not the whole page) once it has rendered.
+      setTimeout(() => {
+        document.getElementById('booking_step_3_ticket')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 60);
       if (onBookingSuccess) onBookingSuccess();
     })
     .catch(error => {
@@ -482,60 +376,75 @@ export default function BookingSystem({
     });
   };
 
-  // Live cancel booking handler in "Manage Bookings" tab
-  const handleCancelBooking = (bookingId: string) => {
-    if (window.confirm('Are you sure you want to cancel this booking reservation? Note: Refunding depends on policies.')) {
-      const refCode = searchedBooking?.reference || searchedBooking?.id || bookingId;
-      fetch(`/api/bookings/${bookingId}/cancel`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ reference: refCode }),
-      })
-      .then(res => {
-        if (!res.ok) throw new Error('Failed to cancel booking.');
-        return res.json();
-      })
-      .then(() => {
-        const updated = bookings.map(b => {
-          if (b.id === bookingId) {
-            return { ...b, status: 'cancelled' as const };
-          }
-          return b;
-        });
-        localStorage.setItem('valleypoint_bookings', JSON.stringify(updated));
-        setBookings(updated);
-        
-        if (searchedBooking && searchedBooking.id === bookingId) {
-          setSearchedBooking({ ...searchedBooking, status: 'cancelled' });
-        }
-        alert('Booking cancellation processed successfully.');
-      })
-      .catch(err => {
-        console.error('Error cancelling booking:', err);
-        alert('Failed to cancel booking. Please try again.');
-      });
+  // Cancel a still-unpaid reservation from the "Manage Bookings" tab.
+  const handleCancelBooking = (reference: string) => {
+    if (!window.confirm('Cancel this reservation? An unpaid hold will be released immediately. For a reservation you have already paid, please contact the campsite about a refund.')) {
+      return;
     }
+    fetch('/api/bookings/release', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ reference }),
+    })
+    .then(res => {
+      if (!res.ok) throw new Error('Failed to cancel booking.');
+      return res.json();
+    })
+    .then((d: any) => {
+      if (d.status === 'cancelled') {
+        setSearchedBooking(prev => prev ? ({ ...prev, status: 'cancelled' }) : prev);
+        alert('Reservation released successfully.');
+      } else {
+        alert('This reservation is already paid/confirmed. Please contact the campsite to process a cancellation and any refund.');
+      }
+    })
+    .catch(err => {
+      console.error('Error cancelling booking:', err);
+      alert('Failed to cancel booking. Please try again.');
+    });
   };
 
-  // Booking details query handler
+  // Booking details query handler — looks the reservation up on the server by reference code.
   const handleSearchBooking = (e: React.FormEvent) => {
     e.preventDefault();
     setSearchedBooking(null);
     setSearchError('');
-    
-    if (!searchBookingRef.trim()) {
+
+    const raw = searchBookingRef.trim().toUpperCase();
+    if (!raw) {
       setSearchError('Please provide a booking Reference ID.');
       return;
     }
+    const reference = raw.startsWith('VP-') ? raw : `VP-${raw}`;
 
-    const trimmedRef = searchBookingRef.trim().toUpperCase();
-    const found = bookings.find(b => b.id === trimmedRef || b.id === `VP-${trimmedRef}`);
-    
-    if (found) {
-      setSearchedBooking(found);
-    } else {
-      setSearchError('No active reservation verified under that reference number.');
-    }
+    fetch(`/api/bookings/lookup?reference=${encodeURIComponent(reference)}`)
+      .then(res => {
+        if (!res.ok) throw new Error('not found');
+        return res.json();
+      })
+      .then((d: any) => {
+        setSearchedBooking({
+          id: d.reference,
+          reference: d.reference,
+          customerName: d.customerName,
+          customerEmail: d.customerEmail,
+          customerPhone: d.customerPhone,
+          checkIn: d.checkIn,
+          checkOut: d.checkOut,
+          accommodationId: d.accommodationSlug,
+          guestsCount: d.guestsCount,
+          totalAmount: d.totalAmount,
+          addOns: d.addOns || [],
+          status: d.status,
+          notes: d.notes,
+          createdAt: d.createdAt || '',
+          amountDue: d.amountDue,
+          paymentStatus: d.paymentStatus,
+        } as any);
+      })
+      .catch(() => {
+        setSearchError('No reservation found under that reference number.');
+      });
   };
 
   // Nav months
@@ -633,21 +542,21 @@ export default function BookingSystem({
                 <span className={`w-7 h-7 rounded-full flex items-center justify-center font-semibold text-xs border ${
                   bookingStep >= 1 ? 'bg-gold-500 text-pine-950 border-gold-500' : 'border-neutral-700 text-neutral-400'
                 }`}>1</span>
-                <span className={`text-xs font-medium ${bookingStep >= 1 ? 'text-gold-400' : 'text-neutral-500'}`}>Dates & Lodging</span>
+                <span className={`text-xs font-medium ${bookingStep >= 1 ? 'text-gold-400' : 'text-neutral-500'}`}>Dates &amp; Lodging</span>
               </div>
               <div className="w-8 h-[1px] bg-pine-800" />
               <div className="flex items-center gap-2">
                 <span className={`w-7 h-7 rounded-full flex items-center justify-center font-semibold text-xs border ${
                   bookingStep >= 2 ? 'bg-gold-500 text-pine-950 border-gold-500' : 'border-neutral-700 text-neutral-400'
                 }`}>2</span>
-                <span className={`text-xs font-medium ${bookingStep >= 2 ? 'text-gold-400' : 'text-neutral-500'}`}>Extras & Guarantee</span>
+                <span className={`text-xs font-medium ${bookingStep >= 2 ? 'text-gold-400' : 'text-neutral-500'}`}>Guest Details</span>
               </div>
               <div className="w-8 h-[1px] bg-pine-800" />
               <div className="flex items-center gap-2">
                 <span className={`w-7 h-7 rounded-full flex items-center justify-center font-semibold text-xs border ${
                   bookingStep >= 3 ? 'bg-gold-500 text-pine-950 border-gold-500' : 'border-neutral-700 text-neutral-400'
                 }`}>3</span>
-                <span className={`text-xs font-medium ${bookingStep >= 3 ? 'text-gold-400' : 'text-neutral-500'}`}>Receipt Voucher</span>
+                <span className={`text-xs font-medium ${bookingStep >= 3 ? 'text-gold-400' : 'text-neutral-500'}`}>Reservation Ticket</span>
               </div>
             </div>
 
@@ -1033,27 +942,44 @@ export default function BookingSystem({
 
                 {/* billing Checkout Invoice Breakdown (Right 5-columns) */}
                 <div className="lg:col-span-5" id="billing_invoice_pane">
-                  <div className="bg-pine-950/80 border border-pine-800 rounded-2xl p-6 space-y-6 sticky top-6">
+                  <div className="bg-pine-950/80 border border-pine-800 rounded-2xl p-6 space-y-5 sticky top-6">
                     <h3 className="font-display font-semibold text-base text-cream-50 border-b border-pine-800 pb-3">
-                      Booking Guarantee Review
+                      Reservation Details
                     </h3>
 
                     {/* Room summary */}
                     <div className="flex gap-4">
                       {selectedAcc.imageUrl ? (
-                        <img src={selectedAcc.imageUrl} alt="" className="w-16 h-16 rounded-lg object-cover shrink-0" referrerPolicy="no-referrer" />
+                        <img src={selectedAcc.imageUrl} alt="" className="w-20 h-20 rounded-xl object-cover shrink-0 border border-pine-800" referrerPolicy="no-referrer" />
                       ) : null}
+                      <div className="min-w-0">
+                        <span className="text-[9px] uppercase font-bold tracking-wider text-gold-400/80 font-display block">Accommodation</span>
+                        <h4 className="font-display font-bold text-sm text-cream-50 leading-snug mt-0.5">{selectedAcc.name}</h4>
+                      </div>
+                    </div>
+
+                    {/* Stay facts */}
+                    <div className="grid grid-cols-2 gap-x-4 gap-y-3 text-xs">
                       <div>
-                        <h4 className="font-display font-bold text-sm text-cream-50 leading-snug">{selectedAcc.name}</h4>
-                        <p className="text-[10px] text-neutral-400 mt-0.5">{nightsCount} Nights Stay ({checkIn} to {checkOut})</p>
-                        <p className="text-[10px] text-neutral-400 mt-1 flex items-center gap-1">
-                          <Users className="w-3 h-3 text-gold-400" /> {guests} Guests Accommodated
-                        </p>
+                        <span className="text-[9px] uppercase font-bold text-neutral-500 font-display flex items-center gap-1"><CalendarCheck className="w-3 h-3 text-gold-400" /> Check-in</span>
+                        <span className="text-cream-100 font-medium">{checkIn || '—'}</span>
+                      </div>
+                      <div>
+                        <span className="text-[9px] uppercase font-bold text-neutral-500 font-display flex items-center gap-1"><CalendarCheck className="w-3 h-3 text-gold-400" /> Check-out</span>
+                        <span className="text-cream-100 font-medium">{checkOut || '—'}</span>
+                      </div>
+                      <div>
+                        <span className="text-[9px] uppercase font-bold text-neutral-500 font-display flex items-center gap-1"><Moon className="w-3 h-3 text-gold-400" /> Nights</span>
+                        <span className="text-cream-100 font-medium">{nightsCount} {nightsCount === 1 ? 'Night' : 'Nights'}</span>
+                      </div>
+                      <div>
+                        <span className="text-[9px] uppercase font-bold text-neutral-500 font-display flex items-center gap-1"><Users className="w-3 h-3 text-gold-400" /> Guests</span>
+                        <span className="text-cream-100 font-medium">{guests} {guests === 1 ? 'Adult' : 'Adults'}</span>
                       </div>
                     </div>
 
                     {/* Itemised prices */}
-                    <div className="space-y-3 pt-3 border-t border-pine-800">
+                    <div className="space-y-3 pt-4 border-t border-pine-800">
                       <div className="flex justify-between text-xs text-left">
                         <span className="text-neutral-400">Base Rental Rate ({nightsCount} nights)</span>
                         <span className="font-display font-semibold text-neutral-200">₱{basePrice.toLocaleString()}</span>
@@ -1075,68 +1001,25 @@ export default function BookingSystem({
                       )}
 
                       <div className="flex justify-between text-xs pt-3 border-t border-pine-800 select-total-lines text-left">
-                        <span className="text-neutral-300 font-medium">Subtotal Amount</span>
-                        <span className="font-display font-bold text-neutral-100">₱{subTotal.toLocaleString()}</span>
-                      </div>
-
-                      <div className="flex justify-between text-xs text-left">
-                        <span className="text-neutral-400">Highland Eco-Vat (12%)</span>
-                        <span className="font-display text-neutral-300">₱{taxAmount.toLocaleString()}</span>
+                        <span className="text-neutral-300 font-medium">Total Reservation Cost</span>
+                        <span className="font-display font-bold text-neutral-100">₱{grandTotal.toLocaleString()}</span>
                       </div>
                     </div>
 
-                    {/* Payment Method Selector */}
-                    <div className="space-y-3 pt-3 border-t border-pine-800 text-left">
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-neutral-500 font-display block">PAYMENT PORTAL</span>
-                      <div className="grid grid-cols-2 gap-3">
-                        <button
-                          type="button"
-                          onClick={() => setPaymentMethod('cash')}
-                          className={`p-3 rounded-xl border text-center transition-all cursor-pointer ${
-                            paymentMethod === 'cash'
-                              ? 'bg-gold-500/10 border-gold-500 text-gold-400'
-                              : 'bg-pine-950/40 border-pine-800 text-neutral-400 hover:border-pine-750'
-                          }`}
-                        >
-                          <span className="font-display font-bold text-[10px] uppercase block">CASH AT CHECK-IN</span>
-                          <span className="text-[9px] text-neutral-500 block mt-0.5">Pay on-site upon arrival</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setPaymentMethod('paymongo')}
-                          className={`p-3 rounded-xl border text-center transition-all cursor-pointer ${
-                            paymentMethod === 'paymongo'
-                              ? 'bg-gold-500/10 border-gold-500 text-gold-400'
-                              : 'bg-pine-950/40 border-pine-800 text-neutral-400 hover:border-pine-750'
-                          }`}
-                        >
-                          <span className="font-display font-bold text-[10px] uppercase block">PAY SECURELY NOW</span>
-                          <span className="text-[9px] text-neutral-500 block mt-0.5">Card, GCash, PayMaya</span>
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* Grand Total */}
-                    <div className="bg-pine-900 p-4 rounded-xl border border-gold-500/10 flex justify-between items-center text-left">
+                    {/* Amount to pay */}
+                    <div className="bg-pine-900 p-4 rounded-xl border border-gold-500/20 flex justify-between items-center text-left">
                       <div>
-                        <span className="text-[9px] uppercase font-bold text-neutral-400 block font-display">GRAND TOTAL PHP</span>
-                        <span className="text-[10px] text-neutral-500 block">All rates are locked dynamically</span>
+                        <span className="text-[9px] uppercase font-bold text-gold-400 block font-display">Amount to Pay</span>
+                        <span className="text-[10px] text-neutral-500 block">Full payment via bank transfer or e-wallet</span>
                       </div>
                       <span className="font-display font-bold text-xl text-gold-400">₱{grandTotal.toLocaleString()}</span>
                     </div>
 
                     <div className="space-y-3">
-                      {paymentMethod === 'paymongo' ? (
-                        <div className="flex items-start gap-2.5 bg-emerald-500/5 p-3 rounded-xl border border-emerald-500/15 leading-relaxed text-[11px] text-emerald-200 text-left">
-                          <Info className="w-4 h-4 shrink-0 text-emerald-500" />
-                          <span>PayMongo Checkout: We will redirect you to secure PayMongo checkout in a new tab to complete your payment with GCash, PayMaya, or Credit Card.</span>
-                        </div>
-                      ) : (
-                        <div className="flex items-start gap-2.5 bg-gold-500/5 p-3 rounded-xl border border-gold-500/15 leading-relaxed text-[11px] text-amber-200 text-left">
-                          <Info className="w-4 h-4 shrink-0 text-gold-500" />
-                          <span>Secure Cash Reservation: Pay at Valleypoint campsite front desk check-in. Cancellation or updates are free through the customer portal below.</span>
-                        </div>
-                      )}
+                      <div className="flex items-start gap-2.5 bg-emerald-500/5 p-3 rounded-xl border border-emerald-500/15 leading-relaxed text-[11px] text-emerald-200 text-left">
+                        <Info className="w-4 h-4 shrink-0 text-emerald-500" />
+                        <span>On the next step you'll get a reservation ticket with the payment account details and QR codes. Your dates are held for you; the reservation is confirmed once staff verify your payment.</span>
+                      </div>
 
                       <div className="flex gap-3">
                         <button
@@ -1154,12 +1037,12 @@ export default function BookingSystem({
                           {isSubmitting ? (
                             <>
                               <div className="w-4 h-4 border-2 border-pine-950 border-t-transparent rounded-full animate-spin" />
-                              <span>Securing Spots...</span>
+                              <span>Reserving your spot...</span>
                             </>
                           ) : (
                             <>
-                              <span>Finish Reservation Ticket</span>
-                              <Check className="w-4 h-4 stroke-[2.5]" />
+                              <span>Confirm Reservation &amp; Get Ticket</span>
+                              <ArrowRight className="w-4 h-4 stroke-[2.5]" />
                             </>
                           )}
                         </button>
@@ -1170,23 +1053,22 @@ export default function BookingSystem({
               </motion.form>
             )}
 
-            {/* STEP 3: BOOKING CONFIRMED SUCCESS VOUCHER */}
+            {/* STEP 3: RESERVATION TICKET + PAYMENT INSTRUCTIONS */}
             {bookingStep === 3 && newBookingResult && (
               <motion.div
-                initial={{ opacity: 0, scale: 0.95 }}
+                initial={{ opacity: 0, scale: 0.97 }}
                 animate={{ opacity: 1, scale: 1 }}
-                className="max-w-2xl mx-auto py-8"
-                id="booking_step_3_layout"
+                className="max-w-2xl mx-auto py-4"
+                id="booking_step_3_ticket"
               >
-                <div className="bg-cream-100 rounded-3xl overflow-hidden shadow-2xl border-4 border-gold-500/30 text-pine-950 relative" id="ticket_voucher_card">
-                  {/* Notch highlights for tickets */}
-                  <div className="absolute top-1/2 -left-3 w-6 h-6 rounded-full bg-pine-900 border-r border-gold-500/20 -translate-y-1/2" />
-                  <div className="absolute top-1/2 -right-3 w-6 h-6 rounded-full bg-pine-900 border-l border-gold-500/20 -translate-y-1/2" />
+                <div className="bg-cream-100 rounded-3xl overflow-hidden shadow-2xl border-4 border-gold-500/30 text-pine-950 relative">
+                  <div className="absolute top-1/2 -left-3 w-6 h-6 rounded-full bg-pine-900 -translate-y-1/2" />
+                  <div className="absolute top-1/2 -right-3 w-6 h-6 rounded-full bg-pine-900 -translate-y-1/2" />
 
                   {/* Header */}
                   <div className="bg-pine-950 text-cream-50 p-6 flex justify-between items-center border-b border-gold-500/20">
                     <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-full border border-gold-400 flex items-center justify-center p-1 bg-pine-900 shrink-0">
+                      <div className="w-10 h-10 rounded-full border border-gold-400 flex items-center justify-center bg-pine-900 shrink-0">
                         <span className="font-display font-bold text-xs text-gold-400">VP</span>
                       </div>
                       <div>
@@ -1195,126 +1077,151 @@ export default function BookingSystem({
                       </div>
                     </div>
                     <div className="text-right">
-                      <span className="text-[9px] uppercase font-bold text-neutral-400 block font-display">TICKET CODE</span>
-                      <span className="font-display font-bold text-base text-gold-400">{newBookingResult.id}</span>
+                      <span className="text-[9px] uppercase font-bold text-neutral-400 block font-display">Reference Code</span>
+                      <span className="font-display font-bold text-base text-gold-400">{newBookingResult.reference}</span>
                     </div>
                   </div>
 
-                  {/* Success banner details */}
+                  {/* Status banner */}
                   <div className="p-6 text-center border-b border-pine-950/10 space-y-2">
-                    {paymongoCheckoutUrl ? (
-                      <>
-                        <div className="w-12 h-12 rounded-full bg-amber-500/10 text-amber-600 flex items-center justify-center mx-auto mb-2 border border-amber-500/30 animate-pulse">
-                          <CreditCard className="w-6 h-6 stroke-[2.5]" />
+                    <div className="w-12 h-12 rounded-full bg-amber-500/10 text-amber-600 flex items-center justify-center mx-auto mb-2 border border-amber-500/30">
+                      <CalendarCheck className="w-6 h-6 stroke-[2.5]" />
+                    </div>
+                    <h3 className="font-serif font-bold text-xl text-pine-900">Reservation Held — Awaiting Payment</h3>
+                    <p className="text-xs text-neutral-600 max-w-md mx-auto">
+                      Thanks, <span className="font-bold">{newBookingResult.customerName}</span>. Your dates are held. Send your payment using the details below, then email your proof of payment — your reservation is confirmed once we verify it.
+                    </p>
+                  </div>
+
+                  {/* Receipt: guest + reservation */}
+                  <div className="p-6 border-b border-dashed border-pine-950/20 bg-cream-50 space-y-5 text-left">
+                    <div>
+                      <span className="text-[9px] uppercase font-bold tracking-wider text-gold-700 font-display block mb-1.5">Guest Details</span>
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+                        <div>
+                          <span className="text-[9px] uppercase font-bold text-neutral-500 block font-display">Name</span>
+                          <span className="font-semibold text-pine-950">{newBookingResult.customerName}</span>
                         </div>
-                        <h3 className="font-serif font-bold text-xl text-pine-900">Secure Payment Required</h3>
-                        <p className="text-xs text-neutral-600 max-w-md mx-auto">
-                          We are securely holding your glamping dates, <span className="font-bold">{newBookingResult.customerName}</span>! Please complete your online payment of <span className="font-bold text-emerald-800">₱{newBookingResult.totalAmount.toLocaleString()}</span> to fully finalize your reservation.
-                        </p>
-                        <div className="pt-2 max-w-sm mx-auto">
-                          <a
-                            href={paymongoCheckoutUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex items-center justify-center gap-2 w-full py-3 px-6 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-cream-50 font-display font-bold text-xs transition-colors shadow-md cursor-pointer"
-                          >
-                            <span>💳 Complete Secure Payment Now</span>
-                            <ExternalLink className="w-4 h-4" />
-                          </a>
-                          <span className="text-[10px] text-neutral-500 mt-1.5 block leading-relaxed">
-                            Clicking opens the official secure PayMongo gateway in a new tab. If a popup blocker stopped it, click the button above.
-                          </span>
+                        <div>
+                          <span className="text-[9px] uppercase font-bold text-neutral-500 block font-display">Email</span>
+                          <span className="font-semibold text-pine-950 break-all">{newBookingResult.customerEmail}</span>
                         </div>
-                      </>
-                    ) : (
-                      <>
-                        <div className="w-12 h-12 rounded-full bg-emerald-500/10 text-emerald-600 flex items-center justify-center mx-auto mb-2 border border-emerald-500/30">
-                          <Check className="w-6 h-6 stroke-[3]" />
+                        <div>
+                          <span className="text-[9px] uppercase font-bold text-neutral-500 block font-display">Phone</span>
+                          <span className="font-semibold text-pine-950">{newBookingResult.customerPhone || '—'}</span>
                         </div>
-                        <h3 className="font-serif font-bold text-xl text-pine-900">Highland Spot Secured!</h3>
-                        <p className="text-xs text-neutral-600 max-w-md mx-auto">
-                          Thank you, <span className="font-bold">{newBookingResult.customerName}</span>. Your glamping dates are securely held in our inventory. A booking overview has been cataloged under code <span className="font-bold text-gold-600">{newBookingResult.id}</span>.
-                        </p>
-                      </>
+                      </div>
+                    </div>
+
+                    <div>
+                      <span className="text-[9px] uppercase font-bold tracking-wider text-gold-700 font-display block mb-1.5">Reservation</span>
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs">
+                        <div>
+                          <span className="text-[9px] uppercase font-bold text-neutral-500 block font-display">Reference No.</span>
+                          <span className="font-mono font-bold text-pine-950">{newBookingResult.reference}</span>
+                        </div>
+                        <div className="sm:col-span-2">
+                          <span className="text-[9px] uppercase font-bold text-neutral-500 block font-display">Booked Room</span>
+                          <span className="font-semibold text-pine-950">{newBookingResult.accommodationName}</span>
+                        </div>
+                        <div>
+                          <span className="text-[9px] uppercase font-bold text-neutral-500 block font-display">Check-in</span>
+                          <span className="font-semibold text-pine-950">{newBookingResult.checkIn}</span>
+                        </div>
+                        <div>
+                          <span className="text-[9px] uppercase font-bold text-neutral-500 block font-display">Check-out</span>
+                          <span className="font-semibold text-pine-950">{newBookingResult.checkOut}</span>
+                        </div>
+                        <div>
+                          <span className="text-[9px] uppercase font-bold text-neutral-500 block font-display">Guests / Nights</span>
+                          <span className="font-semibold text-pine-950">{newBookingResult.guestsCount} pax · {newBookingResult.nights} night/s</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Costs */}
+                  <div className="p-6 space-y-3 border-b border-pine-950/10">
+                    <div className="flex justify-between text-xs text-neutral-600">
+                      <span>Accommodation ({newBookingResult.nights} night/s)</span>
+                      <span>₱{Number(
+                        Number(newBookingResult.totalAmount) -
+                        (Array.isArray(newBookingResult.addOns) ? newBookingResult.addOns.reduce((s: number, a: any) => s + a.price * a.quantity, 0) : 0)
+                      ).toLocaleString()}</span>
+                    </div>
+                    {Array.isArray(newBookingResult.addOns) && newBookingResult.addOns.length > 0 && (
+                      <div className="space-y-1">
+                        <span className="text-[9px] uppercase font-bold text-neutral-500 block font-display">Add-ons</span>
+                        {newBookingResult.addOns.map((a: any, i: number) => (
+                          <div key={i} className="flex justify-between text-xs text-neutral-600">
+                            <span>{a.name} ×{a.quantity}</span>
+                            <span>₱{(a.price * a.quantity).toLocaleString()}</span>
+                          </div>
+                        ))}
+                      </div>
                     )}
-                  </div>
-
-                  {/* Booking details table */}
-                  <div className="p-6 grid grid-cols-2 lg:grid-cols-4 gap-4 border-b border-dashed border-pine-950/20 text-left bg-cream-50">
-                    <div>
-                      <span className="text-[9px] uppercase font-bold text-neutral-500 block font-display">CHECK-IN DATE</span>
-                      <span className="font-display font-semibold text-xs text-pine-950">{new Date(newBookingResult.checkIn).toLocaleDateString(undefined, {month:'short', day:'numeric', year:'numeric'})}</span>
+                    <div className="flex justify-between items-center pt-2 border-t border-pine-950/10">
+                      <span className="text-sm font-bold text-pine-950">Total Amount</span>
+                      <span className="font-display font-black text-xl text-emerald-800">₱{Number(newBookingResult.amountDue ?? newBookingResult.totalAmount).toLocaleString()}</span>
                     </div>
-                    <div>
-                      <span className="text-[9px] uppercase font-bold text-neutral-500 block font-display">CHECK-OUT DATE</span>
-                      <span className="font-display font-semibold text-xs text-pine-950">{new Date(newBookingResult.checkOut).toLocaleDateString(undefined, {month:'short', day:'numeric', year:'numeric'})}</span>
-                    </div>
-                    <div>
-                      <span className="text-[9px] uppercase font-bold text-neutral-500 block font-display">ACCOMMODATION</span>
-                      <span className="font-display font-semibold text-xs text-pine-950 truncate block">{accommodations.find(a => a.id === newBookingResult.accommodationId)?.name}</span>
-                    </div>
-                    <div>
-                      <span className="text-[9px] uppercase font-bold text-neutral-500 block font-display">GUEST STATUS</span>
-                      <span className="font-display font-semibold text-xs text-pine-950">{newBookingResult.guestsCount} Adults staying</span>
-                    </div>
-                  </div>
-
-                  {/* Costing on ticket */}
-                  <div className="p-6 space-y-4">
-                    <div className="flex justify-between items-center">
-                      <div>
-                        <span className="text-[10px] uppercase font-bold text-neutral-500 block font-display">GUEST DETAILS</span>
-                        <span className="text-xs font-semibold">{newBookingResult.customerPhone} | {newBookingResult.customerEmail}</span>
-                      </div>
-                      <div className="text-right">
-                        <span className="text-[10px] uppercase font-bold text-neutral-500 block font-display">GUARANTEED TOTAL RATE</span>
-                        <span className="font-display font-bold text-lg text-emerald-800">₱{newBookingResult.totalAmount.toLocaleString()}</span>
-                      </div>
-                    </div>
-
                     {newBookingResult.notes && (
-                      <div className="p-3 bg-neutral-900/5 rounded-xl border border-neutral-900/10 text-[11px] text-neutral-600 italic text-left">
-                        <span className="font-bold uppercase text-[9px] text-neutral-500 block font-display not-italic">Guest Request:</span>
+                      <div className="p-3 bg-neutral-900/5 rounded-xl border border-neutral-900/10 text-[11px] text-neutral-600 italic">
+                        <span className="font-bold uppercase text-[9px] text-neutral-500 block font-display not-italic">Your request:</span>
                         "{newBookingResult.notes}"
                       </div>
                     )}
-
-                    {/* Add-ons list on ticket */}
-                    {newBookingResult.addOns && newBookingResult.addOns.length > 0 && (
-                      <div className="space-y-1">
-                        <span className="text-[9px] uppercase font-bold text-neutral-500 block font-display text-left">INCLUDED PRE-ORDERS:</span>
-                        <div className="flex flex-wrap gap-2">
-                          {newBookingResult.addOns.map((addon: any, idx) => {
-                            const qtyStr = addon.quantity ? ` (×${addon.quantity})` : '';
-                            return (
-                              <span key={idx} className="text-[10px] py-1 px-2.5 rounded-lg bg-pine-950 text-gold-400 font-medium border border-pine-900">
-                                {addon.name}{qtyStr}
-                              </span>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    )}
                   </div>
 
-                  {/* QR barcode graphics placeholder */}
-                  <div className="bg-neutral-900/5 px-6 py-4 flex items-center justify-between border-t border-pine-950/10">
-                    <div className="flex items-center gap-3">
-                      {/* Barcode styling using nested flex with thin/thick CSS bars */}
-                      <div className="flex items-center gap-[2px] bg-white p-2.5 rounded border border-neutral-300">
-                        {[2,1,3,1,4,1,2,3,1,2,1,3,4,1,2,1,3,1,2,3].map((w, i) => (
-                          <div key={i} className="bg-black h-8" style={{ width: `${w}px` }} />
+                  {/* Email confirmation note */}
+                  <div className="px-6 py-4 bg-emerald-500/5 border-b border-pine-950/10 flex items-start gap-2.5 text-[11px] text-emerald-900 leading-relaxed">
+                    <Info className="w-4 h-4 shrink-0 text-emerald-600 mt-px" />
+                    <span>A confirmation will be sent to <span className="font-semibold break-all">{newBookingResult.customerEmail}</span>. If you don't see it shortly, please check your spam / junk folder.</span>
+                  </div>
+
+                  {/* Payment instructions */}
+                  {newBookingResult.paymentInstructions && (
+                    <div className="p-6 space-y-4 bg-cream-50">
+                      <h4 className="font-serif font-bold text-base text-pine-900">{newBookingResult.paymentInstructions.headline}</h4>
+
+                      <div className="space-y-3">
+                        {(newBookingResult.paymentInstructions.accounts || [])
+                          .filter((acc: any) => acc.accountName || acc.accountNumber || acc.qrImageUrl)
+                          .map((acc: any, i: number) => (
+                          <div key={i} className="flex items-center gap-4 p-3 rounded-xl border border-pine-950/10 bg-white">
+                            {acc.qrImageUrl ? (
+                              <img src={acc.qrImageUrl} alt={`${acc.method} QR`} className="w-20 h-20 rounded-lg object-contain shrink-0 border border-neutral-200" />
+                            ) : null}
+                            <div className="min-w-0">
+                              <span className="font-display font-bold text-xs uppercase tracking-wide text-gold-700 block">{acc.method}</span>
+                              <span className="text-sm font-semibold text-pine-950 block">{acc.accountName}</span>
+                              <span className="text-sm font-mono text-pine-800 block break-all">{acc.accountNumber}</span>
+                            </div>
+                          </div>
                         ))}
                       </div>
-                      <span className="text-[8px] font-mono text-neutral-500 tracking-widest uppercase">VP-RESERVATION-CODE-VERIFIED</span>
-                    </div>
 
+                      <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-[11px] text-amber-900 leading-relaxed">
+                        {newBookingResult.paymentInstructions.note}
+                      </div>
+
+                      <div className="text-xs text-pine-900">
+                        <span className="font-bold">Send your proof of payment to: </span>
+                        <a href={`mailto:${newBookingResult.paymentInstructions.proofEmail}?subject=Proof of payment ${newBookingResult.reference}`} className="font-mono text-emerald-800 underline break-all">
+                          {newBookingResult.paymentInstructions.proofEmail}
+                        </a>
+                        <span className="block text-neutral-500 mt-0.5">Include your reference code <span className="font-mono font-bold">{newBookingResult.reference}</span>.</span>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="bg-neutral-900/5 px-6 py-4 flex items-center justify-between border-t border-pine-950/10">
+                    <span className="text-[8px] font-mono text-neutral-500 tracking-widest uppercase">VP-RESERVATION-HELD</span>
                     <button
                       type="button"
                       onClick={() => window.print()}
                       className="py-2 px-3.5 rounded-xl bg-pine-950 text-cream-50 hover:bg-pine-900 font-display font-semibold text-xs transition-colors flex items-center gap-1.5 cursor-pointer"
                     >
-                      <Printer className="w-3.5 h-3.5" /> Print Ticket Voucher
+                      <Printer className="w-3.5 h-3.5" /> Print / Save Ticket
                     </button>
                   </div>
                 </div>
@@ -1329,18 +1236,18 @@ export default function BookingSystem({
                       setCustomerName('');
                       setCustomerPhone('');
                       setCustomerEmail('');
-                      setPaymongoCheckoutUrl('');
-                      setPaymentMethod('cash');
                       setAddOnQuantities({});
+                      setNewBookingResult(null);
                       setBookingStep(1);
                     }}
                     className="py-3 px-6 rounded-2xl bg-pine-800 text-cream-50 hover:bg-pine-700 transition-colors text-xs font-display font-semibold cursor-pointer"
                   >
-                    Set Up Another Camp Stay
+                    Book Another Stay
                   </button>
                 </div>
               </motion.div>
             )}
+
           </div>
         )}
 
@@ -1403,11 +1310,13 @@ export default function BookingSystem({
                     <div className="text-right">
                       <span className="text-[10px] uppercase font-bold text-neutral-400 block font-display">STATUS CODE</span>
                       <span className={`text-[10px] font-bold py-1 px-2.5 rounded-full inline-block mt-1 ${
-                        searchedBooking.status === 'confirmed' 
-                          ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30' 
+                        searchedBooking.status === 'confirmed'
+                          ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30'
+                          : searchedBooking.status === 'pending'
+                          ? 'bg-amber-500/15 text-amber-300 border border-amber-500/30'
                           : 'bg-rose-500/15 text-rose-300 border border-rose-500/30'
                       }`}>
-                        {searchedBooking.status.toUpperCase()}
+                        {searchedBooking.status === 'pending' ? 'AWAITING PAYMENT' : searchedBooking.status.toUpperCase()}
                       </span>
                     </div>
                   </div>
@@ -1422,19 +1331,26 @@ export default function BookingSystem({
                       <span className="font-medium text-cream-200">{searchedBooking.checkIn} to {searchedBooking.checkOut}</span>
                     </div>
                     <div>
-                      <span className="text-[10px] text-neutral-500 block">Total guaranteed price</span>
+                      <span className="text-[10px] text-neutral-500 block">Total reservation cost</span>
                       <span className="font-display font-bold text-gold-400">₱{searchedBooking.totalAmount.toLocaleString()}</span>
                     </div>
                   </div>
 
-                  {searchedBooking.status === 'confirmed' && (
+                  <div className="py-2 text-xs border-t border-pine-800/60">
+                    <span className="text-[10px] text-neutral-500 block">Payment</span>
+                    <span className={`font-display font-semibold ${(searchedBooking as any).paymentStatus === 'completed' ? 'text-emerald-300' : 'text-amber-300'}`}>
+                      {(searchedBooking as any).paymentStatus === 'completed' ? 'Verified / received' : 'Awaiting payment verification'}
+                    </span>
+                  </div>
+
+                  {searchedBooking.status === 'pending' && (
                     <div className="flex justify-end gap-3 pt-3 border-t border-pine-800/60" id="query_actions">
                       <button
                         type="button"
                         onClick={() => handleCancelBooking(searchedBooking.id)}
                         className="py-2.5 px-4 rounded-xl bg-rose-500/10 hover:bg-rose-500 text-rose-300 hover:text-white border border-rose-500/30 font-display font-semibold text-xs transition-all flex items-center justify-center gap-1.5"
                       >
-                        <Trash2 className="w-3.5 h-3.5" /> Request Spot Release
+                        <Trash2 className="w-3.5 h-3.5" /> Release Unpaid Hold
                       </button>
                     </div>
                   )}
@@ -1442,14 +1358,13 @@ export default function BookingSystem({
               )}
             </AnimatePresence>
 
-            {/* Quick stats for test reference keys */}
+            {/* Guidance */}
             <div className="bg-pine-900/50 p-4 rounded-2xl border border-pine-800 max-w-md mx-auto text-center text-xs space-y-2 text-neutral-400">
               <span className="font-display font-bold text-gold-500 text-xs flex items-center justify-center gap-1">
-                <Info className="w-3.5 h-3.5" /> Testing Reference Identifiers
+                <Info className="w-3.5 h-3.5" /> Your Reference Code
               </span>
               <p className="leading-relaxed text-[11px]">
-                To test the management interface, copy-paste one of our initialized systems: <br />
-                <span className="font-mono bg-pine-950 px-1.5 py-0.5 rounded text-amber-300 font-bold">VP-8429</span> or <span className="font-mono bg-pine-950 px-1.5 py-0.5 rounded text-amber-300 font-bold">VP-1123</span>
+                Enter the <span className="font-mono bg-pine-950 px-1.5 py-0.5 rounded text-amber-300 font-bold">VP-XXXXXX</span> code from your reservation ticket to view its status and payment details.
               </p>
             </div>
           </motion.div>

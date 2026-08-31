@@ -35,16 +35,18 @@ interface AdminPanelProps {
   onClose: () => void;
   bookings: Booking[];
   onBookingsChange: (newBookings: Booking[]) => void;
+  onRefreshBookings: () => void;
 }
 
-type AdminTab = 'dashboard' | 'hero' | 'accommodations' | 'backstory' | 'services' | 'bookings' | 'settings';
+type AdminTab = 'dashboard' | 'hero' | 'accommodations' | 'backstory' | 'services' | 'bookings' | 'analytics' | 'settings';
 
-export default function AdminPanel({ 
-  currentData, 
-  onDataChange, 
-  onClose, 
-  bookings, 
-  onBookingsChange 
+export default function AdminPanel({
+  currentData,
+  onDataChange,
+  onClose,
+  bookings,
+  onBookingsChange,
+  onRefreshBookings,
 }: AdminPanelProps) {
   const [isLoggedIn, setIsLoggedIn] = useState<boolean>(() => {
     return !!sessionStorage.getItem('valleypoint_admin_token');
@@ -57,6 +59,84 @@ export default function AdminPanel({
   const [activeTab, setActiveTab] = useState<AdminTab>('dashboard');
   const [tempData, setTempData] = useState<CMSData>(currentData);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
+
+  // Manual-payment instructions shown on the reservation ticket + emailed to guests.
+  const EMPTY_PAY_INSTR = {
+    headline: 'Send your payment to confirm this reservation',
+    accounts: [{ method: '', accountName: '', accountNumber: '', qrImageUrl: '' }],
+    proofEmail: '',
+    note: '',
+  };
+  const [payInstr, setPayInstr] = useState<any>(EMPTY_PAY_INSTR);
+  const [savingPayInstr, setSavingPayInstr] = useState(false);
+
+  const [showArchivedBookings, setShowArchivedBookings] = useState(false);
+
+  // Visitor analytics
+  const [analytics, setAnalytics] = useState<any>(null);
+  const [analyticsLoading, setAnalyticsLoading] = useState(false);
+
+  const loadAnalytics = () => {
+    const token = sessionStorage.getItem('valleypoint_admin_token') || '';
+    setAnalyticsLoading(true);
+    fetch('/api/admin/analytics', { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => (r.ok ? r.json() : Promise.reject(new Error('failed'))))
+      .then(setAnalytics)
+      .catch(() => setAnalytics(null))
+      .finally(() => setAnalyticsLoading(false));
+  };
+
+  useEffect(() => {
+    if (activeTab === 'analytics') loadAnalytics();
+  }, [activeTab]);
+
+  // Pull the authoritative booking list from the server whenever the admin is logged in.
+  useEffect(() => {
+    if (isLoggedIn) onRefreshBookings();
+  }, [isLoggedIn]);
+
+  useEffect(() => {
+    if (!isLoggedIn) return;
+    fetch('/api/content')
+      .then(res => res.json())
+      .then(data => {
+        if (data && data.payment_instructions) {
+          const p = data.payment_instructions;
+          setPayInstr({
+            headline: p.headline || EMPTY_PAY_INSTR.headline,
+            accounts: Array.isArray(p.accounts) && p.accounts.length ? p.accounts : EMPTY_PAY_INSTR.accounts,
+            proofEmail: p.proofEmail || '',
+            note: p.note || '',
+          });
+        }
+      })
+      .catch(err => console.error('Failed to load payment instructions:', err));
+  }, [isLoggedIn]);
+
+  const savePaymentInstructions = () => {
+    const token = sessionStorage.getItem('valleypoint_admin_token') || '';
+    setSavingPayInstr(true);
+    fetch('/api/content', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+      body: JSON.stringify({ key: 'payment_instructions', value: payInstr }),
+    })
+      .then(res => { if (!res.ok) throw new Error('save failed'); return res.json(); })
+      .then(() => triggerToast('Payment instructions published!'))
+      .catch(err => { console.error(err); alert('Failed to save payment instructions.'); })
+      .finally(() => setSavingPayInstr(false));
+  };
+
+  const updatePayAccount = (idx: number, field: string, value: string) => {
+    setPayInstr((prev: any) => ({
+      ...prev,
+      accounts: prev.accounts.map((a: any, i: number) => (i === idx ? { ...a, [field]: value } : a)),
+    }));
+  };
+  const addPayAccount = () =>
+    setPayInstr((prev: any) => ({ ...prev, accounts: [...prev.accounts, { method: '', accountName: '', accountNumber: '', qrImageUrl: '' }] }));
+  const removePayAccount = (idx: number) =>
+    setPayInstr((prev: any) => ({ ...prev, accounts: prev.accounts.filter((_: any, i: number) => i !== idx) }));
 
   const handleLoginSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -319,15 +399,8 @@ export default function AdminPanel({
       return res.json();
     })
     .then(() => {
-      const updated = bookings.map(b => {
-        if (b.id === bookingId) {
-          return { ...b, status };
-        }
-        return b;
-      });
-      onBookingsChange(updated);
-      localStorage.setItem('valleypoint_bookings', JSON.stringify(updated));
-      triggerToast(`Booking ${bookingId} updated to ${status}!`);
+      triggerToast(`Booking ${bookingId} updated to ${status}.`);
+      onRefreshBookings();
     })
     .catch(err => {
       console.error('Error updating booking status:', err);
@@ -335,36 +408,45 @@ export default function AdminPanel({
     });
   };
 
-  const handleDeleteBooking = (bookingId: string) => {
-    if (confirm(`Are you sure you want to reject reservation record ${bookingId}?`)) {
-      const token = sessionStorage.getItem('valleypoint_admin_token') || '';
-      
-      fetch(`/api/bookings/${bookingId}`, {
-        method: 'DELETE',
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      })
-      .then(res => {
-        if (!res.ok) throw new Error('Failed to delete/reject on server');
-        return res.json();
-      })
+  // Verify the guest's payment: confirm the booking AND mark the payment record received.
+  const handleMarkPaid = (bookingId: string) => {
+    if (!confirm(`Confirm that payment for reservation ${bookingId} has been received and verified?`)) return;
+    const token = sessionStorage.getItem('valleypoint_admin_token') || '';
+    fetch(`/api/bookings/${bookingId}/mark-paid`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${token}` },
+    })
+      .then(res => { if (!res.ok) throw new Error('mark-paid failed'); return res.json(); })
       .then(() => {
-        const updated = bookings.map(b => {
-          if (b.id === bookingId) {
-            return { ...b, status: 'rejected' as any };
-          }
-          return b;
-        });
-        onBookingsChange(updated);
-        localStorage.setItem('valleypoint_bookings', JSON.stringify(updated));
-        triggerToast(`Booking record ${bookingId} soft-rejected/deleted successfully.`);
+        triggerToast(`Reservation ${bookingId} confirmed — payment verified.`);
+        onRefreshBookings();
       })
       .catch(err => {
-        console.error('Error rejecting booking:', err);
-        triggerToast('Error: Failed to delete/reject booking on server.');
+        console.error('Error marking booking paid:', err);
+        triggerToast('Error: could not update payment status.');
       });
-    }
+  };
+
+  const handleDeleteBooking = (bookingId: string) => {
+    if (!confirm(`Are you sure you want to reject reservation record ${bookingId}?`)) return;
+    const token = sessionStorage.getItem('valleypoint_admin_token') || '';
+
+    fetch(`/api/bookings/${bookingId}`, {
+      method: 'DELETE',
+      headers: { 'Authorization': `Bearer ${token}` },
+    })
+    .then(res => {
+      if (!res.ok) throw new Error('Failed to delete/reject on server');
+      return res.json();
+    })
+    .then(() => {
+      triggerToast(`Booking record ${bookingId} rejected.`);
+      onRefreshBookings();
+    })
+    .catch(err => {
+      console.error('Error rejecting booking:', err);
+      triggerToast('Error: Failed to delete/reject booking on server.');
+    });
   };
 
   return (
@@ -493,6 +575,18 @@ export default function AdminPanel({
                   {pendingBookingsCount}
                 </span>
               )}
+            </button>
+
+            <button
+              onClick={() => setActiveTab('analytics')}
+              className={`w-full py-3 px-4 rounded-xl text-xs font-semibold flex items-center gap-3 transition-all ${
+                activeTab === 'analytics'
+                  ? 'bg-gold-500 text-pine-950 font-bold shadow-lg shadow-gold-500/10'
+                  : 'text-neutral-400 hover:text-cream-100 hover:bg-pine-900/40'
+              }`}
+            >
+              <Users className="w-4 h-4 shrink-0" />
+              <span>Visitor Analytics</span>
             </button>
 
             <button
@@ -1400,17 +1494,39 @@ export default function AdminPanel({
           )}
 
           {/* TAB 6: BOOKINGS LIST */}
-          {activeTab === 'bookings' && (
+          {activeTab === 'bookings' && (() => {
+            const activeBookings = bookings.filter(b => b.status !== 'rejected' && b.status !== 'cancelled');
+            const archivedCount = bookings.length - activeBookings.length;
+            const rows = showArchivedBookings ? bookings : activeBookings;
+            return (
             <div className="space-y-6 animate-fadeIn" id="admin_tab_bookings">
-              <div>
-                <h3 className="font-serif font-black text-xl text-cream-100">Live Customer Bookings Dashboard</h3>
-                <p className="text-xs text-neutral-400 mt-1">Review live ticket slips, approve requests, and control booking cancellations directly.</p>
+              <div className="flex items-start justify-between gap-4 flex-wrap">
+                <div>
+                  <h3 className="font-serif font-black text-xl text-cream-100">Live Customer Bookings Dashboard</h3>
+                  <p className="text-xs text-neutral-400 mt-1">Verify payments, approve requests, and manage cancellations. Rejected and cancelled records are hidden by default.</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={onRefreshBookings}
+                    className="py-2 px-3 rounded-xl bg-pine-900 border border-pine-800 hover:border-gold-500/50 text-neutral-300 font-display font-bold text-[10px] uppercase tracking-wider transition-all inline-flex items-center gap-1.5"
+                  >
+                    <RefreshCw className="w-3 h-3" /> Refresh
+                  </button>
+                  {archivedCount > 0 && (
+                    <button
+                      onClick={() => setShowArchivedBookings(v => !v)}
+                      className="py-2 px-3 rounded-xl bg-pine-900 border border-pine-800 hover:border-pine-700 text-neutral-400 font-display font-bold text-[10px] uppercase tracking-wider transition-all"
+                    >
+                      {showArchivedBookings ? 'Hide' : 'Show'} archived ({archivedCount})
+                    </button>
+                  )}
+                </div>
               </div>
 
-              {bookings.length === 0 ? (
+              {rows.length === 0 ? (
                 <div className="py-16 border border-dashed border-pine-800 rounded-3xl text-center text-neutral-400 text-xs flex flex-col items-center justify-center space-y-2">
                   <Calendar className="w-8 h-8 text-neutral-600 animate-pulse" />
-                  <span>No customer bookings registered yet in this system.</span>
+                  <span>No active customer bookings.</span>
                 </div>
               ) : (
                 <div className="bg-pine-950 border border-pine-850 rounded-2xl overflow-hidden" id="bookings_table_wrapper">
@@ -1422,13 +1538,13 @@ export default function AdminPanel({
                           <th className="p-4 text-left">Customer</th>
                           <th className="p-4 text-left">Stay Plot</th>
                           <th className="p-4 text-left">Check In/Out</th>
-                          <th className="p-4 text-right">Amount Paid</th>
+                          <th className="p-4 text-right">Amount</th>
                           <th className="p-4 text-center">Status</th>
                           <th className="p-4 text-right">Actions</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-pine-900/60 font-medium">
-                        {bookings.map((b) => {
+                        {rows.map((b) => {
                           // Find stayed cabin name
                           const cabinName = currentData.accommodations.find(a => a.id === b.accommodationId)?.name || 'Custom Accommodation';
                           return (
@@ -1460,12 +1576,12 @@ export default function AdminPanel({
                               <td className="p-4 text-right space-x-1.5 whitespace-nowrap">
                                 {b.status !== 'confirmed' && (
                                   <button
-                                    onClick={() => handleUpdateBookingStatus(b.id, 'confirmed')}
+                                    onClick={() => handleMarkPaid(b.id)}
                                     className="p-1 px-2 rounded bg-emerald-500/10 hover:bg-emerald-500 text-emerald-400 hover:text-pine-950 font-display font-black text-[9px] uppercase tracking-wider transition-all cursor-pointer inline-flex items-center gap-1 border border-emerald-500/20"
-                                    title="Approve Booking"
+                                    title="Confirm payment received"
                                   >
                                     <CheckCircle className="w-3 h-3" />
-                                    <span>Approve</span>
+                                    <span>Confirm Payment</span>
                                   </button>
                                 )}
                                 {b.status !== 'cancelled' && (
@@ -1495,10 +1611,216 @@ export default function AdminPanel({
                 </div>
               )}
             </div>
+          );
+          })()}
+
+          {activeTab === 'analytics' && (
+            <div className="space-y-6 animate-fadeIn" id="admin_tab_analytics">
+              <div className="flex items-start justify-between gap-4 flex-wrap">
+                <div>
+                  <h3 className="font-serif font-black text-xl text-cream-100">Visitor Analytics</h3>
+                  <p className="text-xs text-neutral-400 mt-1">
+                    Unique visitors are counted using one anonymous cookie per browser, only for visitors who accepted cookies. Daily figures use Philippine time.
+                  </p>
+                </div>
+                <button
+                  onClick={loadAnalytics}
+                  disabled={analyticsLoading}
+                  className="py-2 px-4 rounded-xl bg-pine-900 border border-pine-800 hover:border-gold-500/50 text-neutral-300 font-display font-bold text-xs transition-all disabled:opacity-50 inline-flex items-center gap-2"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${analyticsLoading ? 'animate-spin' : ''}`} />
+                  Refresh
+                </button>
+              </div>
+
+              {analyticsLoading && !analytics ? (
+                <div className="py-16 text-center text-neutral-500 text-xs">Loading visitor data…</div>
+              ) : !analytics ? (
+                <div className="py-16 border border-dashed border-pine-800 rounded-2xl text-center text-neutral-400 text-xs">
+                  Couldn't load analytics. Try refreshing.
+                </div>
+              ) : (
+                <>
+                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                    {[
+                      { label: 'Unique visitors today', value: analytics.uniqueToday },
+                      { label: 'Unique visitors (7 days)', value: analytics.unique7d },
+                      { label: 'Total unique visitors', value: analytics.totalUnique },
+                      { label: 'Page views today', value: analytics.pageViewsToday },
+                    ].map((s) => (
+                      <div key={s.label} className="bg-pine-950 border border-pine-850 rounded-2xl p-4">
+                        <div className="font-display font-black text-2xl text-gold-400">{Number(s.value).toLocaleString()}</div>
+                        <div className="text-[10px] uppercase tracking-wider text-neutral-500 font-display font-bold mt-1">{s.label}</div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 text-xs">
+                    <div className="bg-pine-950 border border-pine-850 rounded-2xl p-4">
+                      <span className="text-neutral-500 block">Unique visitors (30 days)</span>
+                      <span className="font-display font-bold text-cream-100 text-lg">{Number(analytics.unique30d).toLocaleString()}</span>
+                    </div>
+                    <div className="bg-pine-950 border border-pine-850 rounded-2xl p-4">
+                      <span className="text-neutral-500 block">Page views (7 days)</span>
+                      <span className="font-display font-bold text-cream-100 text-lg">{Number(analytics.pageViews7d).toLocaleString()}</span>
+                    </div>
+                    <div className="bg-pine-950 border border-pine-850 rounded-2xl p-4">
+                      <span className="text-neutral-500 block">Page views (all time)</span>
+                      <span className="font-display font-bold text-cream-100 text-lg">{Number(analytics.pageViewsTotal).toLocaleString()}</span>
+                    </div>
+                  </div>
+
+                  {/* Last 14 days */}
+                  <div className="bg-pine-950 border border-pine-850 rounded-2xl p-5">
+                    <h4 className="font-display font-bold text-xs uppercase tracking-wider text-neutral-400 mb-4">Last 14 days</h4>
+                    {(!analytics.daily || analytics.daily.length === 0) ? (
+                      <div className="text-xs text-neutral-500 py-6 text-center">No visits recorded yet.</div>
+                    ) : (
+                      <div className="space-y-2">
+                        {(() => {
+                          const maxPv = Math.max(1, ...analytics.daily.map((d: any) => d.pageViews));
+                          return analytics.daily.map((d: any) => (
+                            <div key={d.day} className="flex items-center gap-3 text-[11px]">
+                              <span className="w-20 shrink-0 text-neutral-500 font-mono">{d.day.slice(5)}</span>
+                              <div className="flex-1 bg-pine-900 rounded-full h-4 overflow-hidden">
+                                <div className="bg-gold-500/70 h-full rounded-full" style={{ width: `${(d.pageViews / maxPv) * 100}%` }} />
+                              </div>
+                              <span className="w-28 shrink-0 text-right text-neutral-300">
+                                {d.newVisitors} new · {d.pageViews} views
+                              </span>
+                            </div>
+                          ));
+                        })()}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Recent visitors */}
+                  <div className="bg-pine-950 border border-pine-850 rounded-2xl overflow-hidden">
+                    <h4 className="font-display font-bold text-xs uppercase tracking-wider text-neutral-400 p-5 pb-3">Most recent visitors</h4>
+                    <div className="overflow-x-auto">
+                      <table className="w-full min-w-[520px] text-xs">
+                        <thead>
+                          <tr className="bg-pine-900/80 text-neutral-500 text-[10px] uppercase tracking-widest font-display font-black">
+                            <th className="p-3 text-left">Anonymous ID</th>
+                            <th className="p-3 text-left">First visit</th>
+                            <th className="p-3 text-left">Last visit</th>
+                            <th className="p-3 text-right">Page views</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-pine-900/60">
+                          {(analytics.recentVisitors || []).map((v: any) => (
+                            <tr key={v.visitorId}>
+                              <td className="p-3 font-mono text-gold-400/80">{String(v.visitorId).slice(0, 12)}…</td>
+                              <td className="p-3 text-neutral-400 font-mono">{v.firstSeen}</td>
+                              <td className="p-3 text-neutral-400 font-mono">{v.lastSeen}</td>
+                              <td className="p-3 text-right text-neutral-300 font-bold">{v.pageViews}</td>
+                            </tr>
+                          ))}
+                          {(!analytics.recentVisitors || analytics.recentVisitors.length === 0) && (
+                            <tr><td colSpan={4} className="p-6 text-center text-neutral-500">No visitors yet.</td></tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
           )}
 
           {activeTab === 'settings' && (
-            <div className="space-y-6 animate-fadeIn" id="admin_tab_settings">
+            <div className="space-y-10 animate-fadeIn" id="admin_tab_settings">
+
+              {/* ---- PAYMENT INSTRUCTIONS ---- */}
+              <div className="space-y-4">
+                <div>
+                  <h3 className="font-serif font-black text-xl text-cream-100">Payment Instructions</h3>
+                  <p className="text-xs text-neutral-400 mt-1">
+                    Shown on every reservation ticket and emailed to guests. Fill in your real account numbers, upload a QR per method if you have one, and set the email address where guests send proof of payment.
+                  </p>
+                </div>
+
+                <div className="bg-pine-950 p-6 rounded-2xl border border-pine-850 space-y-5 max-w-2xl text-left">
+                  <div className="space-y-1.5">
+                    <label className="text-[11px] uppercase font-bold tracking-widest text-neutral-400 font-display block">Headline</label>
+                    <input
+                      type="text"
+                      value={payInstr.headline}
+                      onChange={e => setPayInstr((p: any) => ({ ...p, headline: e.target.value }))}
+                      className="w-full bg-pine-900 border border-pine-800 rounded-xl py-2.5 px-4 text-sm text-cream-100 focus:outline-none focus:border-gold-500"
+                    />
+                  </div>
+
+                  <div className="space-y-3">
+                    <label className="text-[11px] uppercase font-bold tracking-widest text-neutral-400 font-display block">Accounts</label>
+                    {payInstr.accounts.map((acc: any, idx: number) => (
+                      <div key={idx} className="bg-pine-900 border border-pine-800 rounded-xl p-4 space-y-3">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] uppercase font-bold text-gold-400 font-display">Account {idx + 1}</span>
+                          {payInstr.accounts.length > 1 && (
+                            <button type="button" onClick={() => removePayAccount(idx)} className="text-rose-400 hover:text-rose-300 text-xs flex items-center gap-1">
+                              <Trash2 className="w-3.5 h-3.5" /> Remove
+                            </button>
+                          )}
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                          <input type="text" placeholder="Method (GCash, Maya, BDO...)" value={acc.method} onChange={e => updatePayAccount(idx, 'method', e.target.value)} className="bg-pine-950 border border-pine-800 rounded-lg py-2 px-3 text-xs text-cream-100 focus:outline-none focus:border-gold-500" />
+                          <input type="text" placeholder="Account name" value={acc.accountName} onChange={e => updatePayAccount(idx, 'accountName', e.target.value)} className="bg-pine-950 border border-pine-800 rounded-lg py-2 px-3 text-xs text-cream-100 focus:outline-none focus:border-gold-500" />
+                          <input type="text" placeholder="Account number" value={acc.accountNumber} onChange={e => updatePayAccount(idx, 'accountNumber', e.target.value)} className="bg-pine-950 border border-pine-800 rounded-lg py-2 px-3 text-xs text-cream-100 font-mono focus:outline-none focus:border-gold-500" />
+                        </div>
+                        <div className="flex items-center gap-3">
+                          {acc.qrImageUrl ? (
+                            <img src={acc.qrImageUrl} alt="QR" className="w-14 h-14 rounded-lg object-contain border border-pine-800 bg-white" />
+                          ) : null}
+                          <label className="text-[11px] text-gold-400 hover:text-gold-300 cursor-pointer border border-dashed border-pine-700 rounded-lg px-3 py-2">
+                            {acc.qrImageUrl ? 'Replace QR image' : 'Upload QR image'}
+                            <input type="file" accept="image/*" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) handleImageUpload(f, url => updatePayAccount(idx, 'qrImageUrl', url)); }} />
+                          </label>
+                          {acc.qrImageUrl && (
+                            <button type="button" onClick={() => updatePayAccount(idx, 'qrImageUrl', '')} className="text-[11px] text-neutral-500 hover:text-neutral-300">Clear</button>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                    <button type="button" onClick={addPayAccount} className="text-xs text-gold-400 hover:text-gold-300 flex items-center gap-1 font-display font-bold">
+                      <Plus className="w-4 h-4" /> Add another account
+                    </button>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-[11px] uppercase font-bold tracking-widest text-neutral-400 font-display block">Proof-of-payment email (Valleypoint receives this)</label>
+                    <input
+                      type="email"
+                      value={payInstr.proofEmail}
+                      onChange={e => setPayInstr((p: any) => ({ ...p, proofEmail: e.target.value }))}
+                      placeholder="payments@valleypoint.example"
+                      className="w-full bg-pine-900 border border-pine-800 rounded-xl py-2.5 px-4 text-sm text-cream-100 font-mono focus:outline-none focus:border-gold-500"
+                    />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-[11px] uppercase font-bold tracking-widest text-neutral-400 font-display block">Note to the guest</label>
+                    <textarea
+                      rows={4}
+                      value={payInstr.note}
+                      onChange={e => setPayInstr((p: any) => ({ ...p, note: e.target.value }))}
+                      className="w-full bg-pine-900 border border-pine-800 rounded-xl py-2.5 px-4 text-sm text-cream-100 focus:outline-none focus:border-gold-500 resize-none"
+                    />
+                  </div>
+
+                  <button
+                    onClick={savePaymentInstructions}
+                    disabled={savingPayInstr}
+                    className="py-2.5 px-5 rounded-xl bg-gold-500 hover:bg-gold-400 text-pine-950 font-display font-black text-xs uppercase tracking-wider transition-all cursor-pointer inline-flex items-center gap-2 disabled:opacity-50"
+                  >
+                    <Save className="w-4 h-4" />
+                    <span>{savingPayInstr ? 'Saving...' : 'Publish Payment Instructions'}</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* ---- PASSWORD ---- */}
               <div>
                 <h3 className="font-serif font-black text-xl text-cream-100">Admin Password Management</h3>
                 <p className="text-xs text-neutral-400 mt-1">

@@ -119,6 +119,27 @@ export const bookingAddOns = pgTable('booking_add_ons', {
   actualPrice: numeric('actual_price', { precision: 10, scale: 2 }).notNull(),
 });
 
+// 12. SITE VISITORS TABLE (anonymous unique-visitor tracking, consent-gated)
+export const visitors = pgTable('visitors', {
+  visitorId: varchar('visitor_id', { length: 64 }).primaryKey(), // random anonymous id stored in a cookie
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  lastSeenAt: timestamp('last_seen_at').defaultNow().notNull(),
+  pageViews: integer('page_views').default(1).notNull(),
+});
+
+// 13. VISIT EVENTS TABLE (one row per tracked page view)
+export const visitEvents = pgTable('visit_events', {
+  id: serial('id').primaryKey(),
+  visitorId: varchar('visitor_id', { length: 64 }).notNull(),
+  path: varchar('path', { length: 300 }),
+  isNewVisitor: integer('is_new_visitor').default(0).notNull(), // 1 = first-ever visit for this id
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+}, (table) => {
+  return {
+    idxVisitCreated: index('idx_visit_events_created').on(table.createdAt),
+  };
+});
+
 // ==========================================
 // RELATIONSHIPS DEFINITIONS (for Drizzle ORM)
 // ==========================================

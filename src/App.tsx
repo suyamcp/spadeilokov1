@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Users, 
@@ -32,6 +32,7 @@ import AboutSection from './components/AboutSection';
 import ServicesSection from './components/ServicesSection';
 import FAQsSection from './components/FAQsSection';
 import AdminPanel from './components/AdminPanel';
+import CookieConsent from './components/CookieConsent';
 import { getCMSData, CMSData, saveCMSData } from './lib/cmsState';
 import { Booking } from './types';
 
@@ -67,56 +68,44 @@ export default function App() {
       });
   }, []);
 
-  // Initialize and load bookings safely
-  useEffect(() => {
+  // Load bookings from the server. Admins (with a session token) get full records;
+  // everyone else gets the no-PII availability feed used to draw the calendar.
+  const refreshBookings = useCallback(() => {
     const token = sessionStorage.getItem('valleypoint_admin_token');
     if (token) {
-      fetch('/api/bookings', {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      })
-      .then(res => {
-        if (!res.ok) throw new Error('Unauthenticated or failed');
-        return res.json();
-      })
-      .then(data => {
-        if (Array.isArray(data)) {
-          setBookings(data);
-        }
-      })
-      .catch(err => {
-        console.error('Error loading admin bookings:', err);
-      });
+      fetch('/api/bookings', { headers: { 'Authorization': `Bearer ${token}` } })
+        .then(res => { if (!res.ok) throw new Error('Unauthenticated or failed'); return res.json(); })
+        .then(data => { if (Array.isArray(data)) setBookings(data); })
+        .catch(err => console.error('Error loading admin bookings:', err));
     } else {
       fetch('/api/availability')
         .then(res => res.json())
         .then(data => {
-          if (Array.isArray(data)) {
-            const mapped: Booking[] = data.map((row: any, index: number) => {
-              return {
-                id: `avail-${index}`,
-                customerName: '',
-                customerEmail: '',
-                customerPhone: '',
-                checkIn: row.checkIn,
-                checkOut: row.checkOut,
-                accommodationId: row.roomTypeSlug,
-                guestsCount: 0,
-                totalAmount: 0,
-                addOns: [],
-                status: row.status,
-                createdAt: '',
-              };
-            });
-            setBookings(mapped);
-          }
+          if (!Array.isArray(data)) return;
+          setBookings(data.map((row: any, index: number) => ({
+            id: `avail-${index}`,
+            customerName: '',
+            customerEmail: '',
+            customerPhone: '',
+            checkIn: row.checkIn,
+            checkOut: row.checkOut,
+            accommodationId: row.roomTypeSlug,
+            guestsCount: 0,
+            totalAmount: 0,
+            addOns: [],
+            status: row.status,
+            createdAt: '',
+          })));
         })
-        .catch(err => {
-          console.error('Error loading public availability:', err);
-        });
+        .catch(err => console.error('Error loading public availability:', err));
     }
-  }, [showAdmin]);
+  }, []);
+
+  useEffect(() => {
+    // Drop any stale demo bookings a previous build cached in the browser.
+    try { localStorage.removeItem('valleypoint_bookings'); } catch { /* noop */ }
+    refreshBookings();
+  }, [showAdmin, refreshBookings]);
 
   // Sync scroll position to highlight navigation
   useEffect(() => {
@@ -174,91 +163,11 @@ export default function App() {
     setBookings(newBookings);
   };
 
-  const pathname = window.location.pathname;
-
-  if (pathname === '/booking-success') {
-    const params = new URLSearchParams(window.location.search);
-    const reference = params.get('reference') || 'VP-XXXXXX';
-    return (
-      <div className="min-h-screen bg-pine-950 text-cream-50 font-sans flex items-center justify-center p-6 selection:bg-gold-500 selection:text-pine-950 antialiased">
-        <div className="max-w-md w-full bg-pine-900 border border-pine-800 rounded-3xl p-8 text-center shadow-2xl relative overflow-hidden">
-          <div className="absolute top-0 left-1/2 -translate-x-1/2 w-48 h-48 bg-gold-500/10 rounded-full blur-3xl pointer-events-none" />
-          
-          <div className="w-16 h-16 bg-gold-500/20 border border-gold-400 rounded-full flex items-center justify-center mx-auto mb-6">
-            <Check className="w-8 h-8 text-gold-400 animate-pulse" />
-          </div>
-          
-          <h1 className="font-display font-black text-2xl uppercase tracking-wider text-[#faf9f2] mb-3">
-            Booking Submitted!
-          </h1>
-          
-          <p className="text-xs text-neutral-400 leading-relaxed mb-6">
-            Thank you for choosing Valleypoint Campsite. Your checkout transaction was processed successfully by PayMongo.
-          </p>
-          
-          <div className="bg-pine-950 border border-pine-850 rounded-2xl p-4 mb-8 relative">
-            <span className="text-[10px] uppercase font-bold tracking-widest text-neutral-500 block mb-1">
-              Your Reference Code
-            </span>
-            <span className="font-mono text-xl font-extrabold text-gold-400 tracking-wider">
-              {reference}
-            </span>
-            <p className="text-[10px] text-neutral-500 mt-2">
-              Please keep this code to check your reservation status inside our portal.
-            </p>
-          </div>
-          
-          <div className="space-y-4">
-            <p className="text-[11px] text-neutral-400 leading-relaxed">
-              Your booking is currently <span className="text-gold-400 font-bold uppercase">paid & pending warden review</span>. Once our team verifies the pitch slot availability, we will confirm your booking.
-            </p>
-            
-            <button
-              onClick={() => {
-                window.location.href = '/';
-              }}
-              className="w-full py-3 rounded-xl bg-gold-500 hover:bg-gold-400 text-pine-950 font-display font-bold text-xs uppercase tracking-wider transition-all cursor-pointer shadow-lg shadow-gold-500/15"
-            >
-              Return to Homepage
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  if (pathname === '/booking-cancel') {
-    return (
-      <div className="min-h-screen bg-pine-950 text-cream-50 font-sans flex items-center justify-center p-6 selection:bg-gold-500 selection:text-pine-950 antialiased">
-        <div className="max-w-md w-full bg-pine-900 border border-pine-800 rounded-3xl p-8 text-center shadow-2xl relative overflow-hidden">
-          <div className="w-16 h-16 bg-red-500/20 border border-red-500 rounded-full flex items-center justify-center mx-auto mb-6">
-            <X className="w-8 h-8 text-red-400 animate-pulse" />
-          </div>
-          
-          <h1 className="font-display font-black text-2xl uppercase tracking-wider text-[#faf9f2] mb-3">
-            Checkout Cancelled
-          </h1>
-          
-          <p className="text-xs text-neutral-400 leading-relaxed mb-8">
-            The payment checkout session was cancelled or failed to complete. Don't worry, your desired reservation dates have not been permanently booked, and no funds were charged.
-          </p>
-          
-          <button
-            onClick={() => {
-              window.location.href = '/';
-            }}
-            className="w-full py-3 rounded-xl bg-pine-800 hover:bg-pine-700 text-[#faf9f2] border border-pine-700 font-display font-bold text-xs uppercase tracking-wider transition-all cursor-pointer"
-          >
-            Return to Booking Portal
-          </button>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="min-h-screen bg-pine-950 text-cream-50 font-sans selection:bg-gold-500 selection:text-pine-950 antialiased overflow-x-hidden">
-      
+
+      <CookieConsent />
+
       {/* Toast Notification HUD */}
       <AnimatePresence>
         {showNotification && (
@@ -280,11 +189,12 @@ export default function App() {
           ============================================== */}
       {showAdmin ? (
         <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 min-h-[85vh] animate-fadeIn">
-          <AdminPanel 
-            currentData={cmsData} 
-            onDataChange={(newData) => setCmsData(newData)} 
+          <AdminPanel
+            currentData={cmsData}
+            onDataChange={(newData) => setCmsData(newData)}
             bookings={bookings}
             onBookingsChange={handleUpdateBookings}
+            onRefreshBookings={refreshBookings}
             onClose={() => setShowAdmin(false)}
           />
         </main>
@@ -518,12 +428,12 @@ export default function App() {
               </div>
 
               {/* Master interactive live booking widget */}
-              <BookingSystem 
-                initialAccommodationId={preselectedRoomId} 
+              <BookingSystem
+                initialAccommodationId={preselectedRoomId}
                 accommodations={cmsData.accommodations}
                 bookings={bookings}
                 onBookingsChange={handleUpdateBookings}
-                onBookingSuccess={() => triggerCustomToast('Booking record cached successfully!')}
+                onBookingSuccess={() => { triggerCustomToast('Reservation created — check your ticket below.'); refreshBookings(); }}
               />
 
             </div>
@@ -594,7 +504,14 @@ export default function App() {
                   <span>•</span>
                   <a href="#faqs" className="hover:text-neutral-400 uppercase">Term of Service</a>
                   <span>•</span>
-                  <button 
+                  <button
+                    onClick={() => window.dispatchEvent(new Event('open-cookie-settings'))}
+                    className="hover:text-neutral-400 uppercase tracking-wider cursor-pointer"
+                  >
+                    Cookie Settings
+                  </button>
+                  <span>•</span>
+                  <button
                     onClick={() => {
                       setShowAdmin(true);
                       window.scrollTo({ top: 0, behavior: 'smooth' });
