@@ -284,17 +284,32 @@ async function startServer() {
     }
   }
 
+  // Bootstraps the admin account the first time the app runs against an empty database.
+  // Credentials come from the environment, never from source control. If no initial
+  // password is provided we mint a random one and print it once, so this app ships
+  // with no publicly-known default login.
   async function seedDefaultAdminIfNeeded() {
     try {
       const hashRecord = await db.select().from(adminSettings).where(eq(adminSettings.key, 'admin_password_hash')).limit(1);
-      if (hashRecord.length === 0) {
-        console.log('No admin user found in database. Seeding default admin...');
-        const hash = await bcrypt.hash('Fourniner11', 12);
-        await db.insert(adminSettings).values([
-          { key: 'admin_username', value: 'valleypoint2002@gmail.com' },
-          { key: 'admin_password_hash', value: hash }
-        ]);
-        console.log('✓ Seeded default admin successfully!');
+      if (hashRecord.length > 0) return;
+
+      const email = process.env.ADMIN_EMAIL || 'admin@valleypoint.local';
+      const provided = process.env.ADMIN_INITIAL_PASSWORD;
+      const password = provided || crypto.randomBytes(12).toString('base64url');
+      const hash = await bcrypt.hash(password, 12);
+
+      await db.insert(adminSettings).values([
+        { key: 'admin_username', value: email },
+        { key: 'admin_password_hash', value: hash }
+      ]);
+
+      console.log('✓ Admin account created.');
+      console.log(`   Username: ${email}`);
+      if (provided) {
+        console.log('   Password: taken from ADMIN_INITIAL_PASSWORD in your environment.');
+      } else {
+        console.log(`   TEMPORARY PASSWORD (shown once, not stored in plain text): ${password}`);
+        console.log('   Log in and change it under Admin → Settings → Admin Password Management.');
       }
     } catch (err) {
       console.error('Failed to seed default admin on startup:', err);
