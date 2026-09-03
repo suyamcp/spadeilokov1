@@ -61,7 +61,7 @@ export default function ServicesSection({ services }: ServicesSectionProps) {
                         <span className="text-[9px] text-neutral-600 font-medium">Upload via Admin UI</span>
                       </div>
                     )}
-                    <div className="absolute inset-0 bg-gradient-to-t from-pine-950 via-pine-950/20 to-transparent" />
+                    <div className="img-fade absolute inset-0 bg-gradient-to-t from-pine-950 via-pine-950/20 to-transparent" />
                     
                     {/* Floating price tag badge */}
                     {srv.price && (

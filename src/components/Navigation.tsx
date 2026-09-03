@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Menu, X, MapPin, Calendar, Compass, Lock } from 'lucide-react';
+import ThemeToggle from './ThemeToggle';
 
 interface NavigationProps {
   onBookNowClick: () => void;
@@ -34,9 +35,9 @@ export default function Navigation({ onBookNowClick, activeSection, onAdminClick
           {/* Logo Brand left */}
           <div className="flex items-center gap-3">
             <a href="#" className="flex items-center gap-2 group" id="brand_logo_link">
-              <div className="w-12 h-12 rounded-full bg-cream-50 border-2 border-gold-500 overflow-hidden flex items-center justify-center p-1 relative shadow-inner">
+              <div className="w-12 h-12 rounded-full bg-paper-50 border-2 border-gold-500 overflow-hidden flex items-center justify-center p-1 relative shadow-inner">
                 {/* Custom circular mountain logo vector in CSS/SVG */}
-                <svg className="w-full h-full text-pine-950" viewBox="0 0 100 100" fill="none" stroke="currentColor" strokeWidth="6" strokeLinecap="round" strokeLinejoin="round">
+                <svg className="w-full h-full text-ink" viewBox="0 0 100 100" fill="none" stroke="currentColor" strokeWidth="6" strokeLinecap="round" strokeLinejoin="round">
                   <circle cx="50" cy="50" r="42" fill="#faf9f2" stroke="#062c15" strokeWidth="4"/>
                   {/* Pines */}
                   <path d="M22 68 L28 54 L34 68 Z" fill="#0c4220" stroke="none"/>
@@ -78,6 +79,7 @@ export default function Navigation({ onBookNowClick, activeSection, onAdminClick
             <span className="text-[10px] uppercase font-bold tracking-widest text-gold-300/80 font-display flex items-center gap-1.5">
               <MapPin className="w-4 h-4 text-gold-500 animate-bounce" /> Greenvalley, Santo Tomas Rd, Tuba
             </span>
+            <ThemeToggle />
             {onAdminClick && (
               <button
                 onClick={onAdminClick}
@@ -89,7 +91,7 @@ export default function Navigation({ onBookNowClick, activeSection, onAdminClick
             )}
             <button
               onClick={onBookNowClick}
-              className="py-2.5 px-5 rounded-full bg-gold-500 hover:bg-gold-400 text-pine-950 font-display font-semibold text-xs tracking-wider transition-all hover:scale-105 active:scale-95 shadow-lg shadow-gold-500/10 cursor-pointer"
+              className="py-2.5 px-5 rounded-full bg-gold-500 hover:bg-gold-400 text-ink font-display font-semibold text-xs tracking-wider transition-all hover:scale-105 active:scale-95 shadow-lg shadow-gold-500/10 cursor-pointer"
               id="header_quick_book_btn"
             >
               Secure Spot
@@ -127,6 +129,7 @@ export default function Navigation({ onBookNowClick, activeSection, onAdminClick
             <div className="flex items-center gap-2 pl-3 text-[10px] font-display uppercase tracking-wider text-neutral-400 text-left">
               <MapPin className="w-4 h-4 text-gold-500" /> Greenvalley, Tuba, Benguet
             </div>
+            <ThemeToggle variant="full" />
             {onAdminClick && (
               <button
                 onClick={() => { setIsOpen(false); onAdminClick(); }}
@@ -138,7 +141,7 @@ export default function Navigation({ onBookNowClick, activeSection, onAdminClick
             )}
             <button
               onClick={() => { setIsOpen(false); onBookNowClick(); }}
-              className="w-full py-3.5 px-4 rounded-xl bg-gold-500 hover:bg-gold-400 text-pine-950 font-display font-bold text-sm tracking-wide transition-colors"
+              className="w-full py-3.5 px-4 rounded-xl bg-gold-500 hover:bg-gold-400 text-ink font-display font-bold text-sm tracking-wide transition-colors"
             >
               Book Reservation Now
             </button>

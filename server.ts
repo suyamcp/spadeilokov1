@@ -21,6 +21,59 @@ async function getRoomTypeBySlug(slug: string) {
   return rt;
 }
 
+
+// ==========================================================================
+// ROOM INVENTORY
+// The admin's "plots available" number in the Accommodations tab is the source
+// of truth. This reconciles the physical `rooms` rows to match it, so the
+// calendar can never advertise more units than the booking engine will accept.
+// Units are only removed if they carry no bookings at all.
+// ==========================================================================
+async function reconcileRoomInventory(slug: string, desired: number) {
+  const rt = await getRoomTypeBySlug(slug);
+  if (!rt) return { slug, ok: false, reason: 'unknown room type' };
+
+  const target = Math.max(0, Math.min(500, Math.floor(Number(desired) || 0)));
+  const existing = await db.select().from(rooms).where(eq(rooms.roomTypeId, rt.id));
+  const current = existing.length;
+  if (target === current) return { slug, ok: true, current, target, added: 0, removed: 0 };
+
+  // Prefix from the existing units (LC-, DG-, SP-), else initials of the slug.
+  const prefix = existing[0]?.roomNumber?.includes('-')
+    ? existing[0].roomNumber.split('-')[0]
+    : slug.split('-').map(w => w[0]).join('').toUpperCase();
+
+  if (target > current) {
+    let maxN = 0;
+    for (const r of existing) {
+      const n = parseInt(String(r.roomNumber).split('-')[1] || '0', 10);
+      if (!isNaN(n) && n > maxN) maxN = n;
+    }
+    const toAdd = [];
+    for (let i = 1; i <= target - current; i++) {
+      toAdd.push({ roomNumber: `${prefix}-${String(maxN + i).padStart(2, '0')}`, roomTypeId: rt.id, status: 'available' });
+    }
+    await db.insert(rooms).values(toAdd).onConflictDoNothing();
+    return { slug, ok: true, current, target, added: toAdd.length, removed: 0 };
+  }
+
+  // Shrinking: only drop units that have never been booked, newest first.
+  const booked = await db.selectDistinct({ roomId: bookingRooms.roomId }).from(bookingRooms);
+  const bookedIds = new Set(booked.map(b => b.roomId));
+  const removable = existing
+    .filter(r => !bookedIds.has(r.id))
+    .sort((a, b) => String(b.roomNumber).localeCompare(String(a.roomNumber)));
+
+  const wanted = current - target;
+  const victims = removable.slice(0, wanted);
+  for (const v of victims) await db.delete(rooms).where(eq(rooms.id, v.id));
+
+  return {
+    slug, ok: true, current, target, added: 0, removed: victims.length,
+    blocked: wanted - victims.length,   // units kept because they hold bookings
+  };
+}
+
 // ==========================================
 // MANUAL PAYMENT: instructions + email
 // ==========================================
@@ -346,6 +399,74 @@ async function startServer() {
   await seedDefaultAdminIfNeeded();
   await seedPaymentInstructionsIfNeeded();
   await ensureAnalyticsTables();
+
+
+  // ==========================================================================
+  // SCHEDULED MAINTENANCE
+  // ==========================================================================
+
+  // How long an unpaid reservation may hold its dates. Editable in Admin -> Settings.
+  async function getPendingHoldHours(): Promise<number> {
+    try {
+      const [row] = await db.select().from(adminSettings).where(eq(adminSettings.key, 'pending_hold_hours')).limit(1);
+      const n = Number(row?.value);
+      if (Number.isFinite(n) && n >= 1 && n <= 720) return n;
+    } catch { /* fall through */ }
+    return 48;
+  }
+
+  // Frees rooms held by reservations that were never paid for. This is what
+  // finally enforces the "released after 48 hours" line on the payment ticket.
+  async function releaseExpiredHolds() {
+    try {
+      const hours = await getPendingHoldHours();
+      const { rows } = await db.execute(sql`
+        UPDATE bookings SET status = 'cancelled', updated_at = now(),
+               cancellation_reason = 'Auto-released: payment not received within the hold window'
+        WHERE status = 'pending'
+          AND booking_date < now() - (${String(hours)} || ' hours')::interval
+        RETURNING reference
+      `) as any;
+      if (rows?.length) {
+        console.log(`Released ${rows.length} unpaid reservation(s) after ${hours}h:`, rows.map((r: any) => r.reference).join(', '));
+      }
+    } catch (err) {
+      console.error('Failed to release expired holds:', err);
+    }
+  }
+
+  // Privacy retention: after 12 months, strip the personal details from guests
+  // whose bookings are ALL cancelled/rejected. The booking rows themselves stay,
+  // so cancellation stats and the dispute trail survive - only the PII goes.
+  async function anonymiseOldCancellations() {
+    try {
+      const { rows } = await db.execute(sql`
+        UPDATE guests g
+        SET first_name = 'Removed', last_name = 'Guest',
+            email = 'anon+' || g.id || '@removed.invalid',
+            phone_number = '', address = '', updated_at = now()
+        WHERE g.email NOT LIKE '%@removed.invalid'
+          AND EXISTS (SELECT 1 FROM bookings b WHERE b.guest_id = g.id)
+          AND NOT EXISTS (
+            SELECT 1 FROM bookings b
+            WHERE b.guest_id = g.id
+              AND (b.status NOT IN ('cancelled','rejected')
+                   OR b.updated_at > now() - interval '12 months')
+          )
+        RETURNING g.id
+      `) as any;
+      if (rows?.length) console.log(`Anonymised ${rows.length} guest record(s) older than 12 months.`);
+    } catch (err) {
+      console.error('Failed to anonymise old cancellations:', err);
+    }
+  }
+
+  async function runMaintenance() {
+    await releaseExpiredHolds();
+    await anonymiseOldCancellations();
+  }
+  await runMaintenance();
+  setInterval(runMaintenance, 15 * 60 * 1000); // every 15 minutes
 
   // ==========================================
   // API ROUTES
@@ -700,7 +821,39 @@ async function startServer() {
           target: siteContent.key,
           set: { value: valueStr, updatedAt: new Date() }
         });
-      res.json({ success: true });
+
+      // Saving accommodations also re-points real inventory at the admin's numbers.
+      let inventory: any[] = [];
+      if (key === 'accommodations' && Array.isArray(value)) {
+        for (const acc of value) {
+          if (acc?.id && acc.quantity !== undefined && acc.quantity !== null) {
+            inventory.push(await reconcileRoomInventory(String(acc.id), acc.quantity));
+          }
+        }
+
+        // Some units may be un-removable because they still carry bookings. Write the
+        // number we actually achieved back to the CMS so the calendar can never
+        // advertise a figure the booking engine disagrees with, in either direction.
+        let corrected = false;
+        const adjusted = value.map((acc: any) => {
+          const r = inventory.find(i => i.slug === String(acc?.id));
+          if (r?.ok) {
+            const actual = r.current + (r.added || 0) - (r.removed || 0);
+            if (Number(acc.quantity) !== actual) { corrected = true; return { ...acc, quantity: actual }; }
+          }
+          return acc;
+        });
+        if (corrected) {
+          await db.update(siteContent)
+            .set({ value: JSON.stringify(adjusted), updatedAt: new Date() })
+            .where(eq(siteContent.key, 'accommodations'));
+        }
+
+        const changed = inventory.filter(i => i.added || i.removed || i.blocked);
+        if (changed.length) console.log('Room inventory reconciled:', JSON.stringify(changed));
+      }
+
+      res.json({ success: true, inventory });
     } catch (error) {
       console.error('Failed to save site content:', error);
       res.status(500).json({ error: 'Failed to save site content.' });
@@ -1305,17 +1458,71 @@ async function startServer() {
     }
   });
 
-  // Reject/Delete booking record (Admin Only) - Soft-delete via status change
+  // PERMANENTLY delete a booking and everything hanging off it (Admin Only).
+  // Guarded: only already-cancelled/rejected records can be purged, so a live
+  // reservation can never be destroyed by a stray call.
   app.delete('/api/bookings/:id', requireAdmin, async (req, res) => {
     const bookingId = Number(req.params.id);
+    if (!Number.isInteger(bookingId)) {
+      return res.status(400).json({ error: 'Invalid booking id.' });
+    }
     try {
-      await db.update(bookings)
-        .set({ status: 'rejected', updatedAt: new Date() })
-        .where(eq(bookings.id, bookingId));
-      res.json({ success: true });
+      const [booking] = await db.select().from(bookings).where(eq(bookings.id, bookingId)).limit(1);
+      if (!booking) {
+        return res.status(404).json({ error: 'Booking not found.' });
+      }
+      if (booking.status !== 'cancelled' && booking.status !== 'rejected') {
+        return res.status(409).json({
+          error: 'Cancel this reservation first — only cancelled or removed bookings can be permanently deleted.'
+        });
+      }
+
+      const guestId = booking.guestId;
+
+      // Children first: every FK to bookings is onDelete: restrict.
+      await db.delete(bookingAddOns).where(eq(bookingAddOns.bookingId, bookingId));
+      await db.delete(payments).where(eq(payments.bookingId, bookingId));
+      await db.delete(bookingRooms).where(eq(bookingRooms.bookingId, bookingId));
+      await db.delete(bookings).where(eq(bookings.id, bookingId));
+
+      // Drop the guest record too if this was their only booking.
+      const remaining = await db.select({ id: bookings.id }).from(bookings).where(eq(bookings.guestId, guestId)).limit(1);
+      if (remaining.length === 0) {
+        await db.delete(guests).where(eq(guests.id, guestId));
+      }
+
+      console.log('Permanently deleted booking', booking.reference, '(id', bookingId + ')');
+      res.json({ success: true, reference: booking.reference });
     } catch (error) {
-      console.error('Failed to delete/reject booking:', error);
-      res.status(500).json({ error: 'Failed to delete/reject booking.' });
+      console.error('Failed to permanently delete booking:', error);
+      res.status(500).json({ error: 'Failed to delete booking.' });
+    }
+  });
+
+  // Operational settings (Admin Only) - currently the unpaid-hold window.
+  app.get('/api/admin/ops-settings', requireAdmin, async (req, res) => {
+    try {
+      res.json({ pendingHoldHours: await getPendingHoldHours() });
+    } catch (error) {
+      console.error('Failed to read ops settings:', error);
+      res.status(500).json({ error: 'Failed to read settings.' });
+    }
+  });
+
+  app.post('/api/admin/ops-settings', requireAdmin, async (req, res) => {
+    const hours = Number(req.body?.pendingHoldHours);
+    if (!Number.isFinite(hours) || hours < 1 || hours > 720) {
+      return res.status(400).json({ error: 'Hold window must be between 1 and 720 hours.' });
+    }
+    try {
+      await db.insert(adminSettings)
+        .values({ key: 'pending_hold_hours', value: String(Math.floor(hours)) })
+        .onConflictDoUpdate({ target: adminSettings.key, set: { value: String(Math.floor(hours)) } });
+      await releaseExpiredHolds(); // apply the new window immediately
+      res.json({ success: true, pendingHoldHours: Math.floor(hours) });
+    } catch (error) {
+      console.error('Failed to save ops settings:', error);
+      res.status(500).json({ error: 'Failed to save settings.' });
     }
   });
 
@@ -1394,7 +1601,10 @@ async function startServer() {
   }
 
   app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on http://0.0.0.0:${PORT}`);
+    // Bind on 0.0.0.0 (all interfaces) but print localhost — 0.0.0.0 is not a browsable address.
+    console.log(`
+  ✓ Valleypoint site ready:  http://localhost:${PORT}
+`);
   });
 }
 

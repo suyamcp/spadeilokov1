@@ -3,7 +3,14 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>My Google AI Studio App</title>
+    <title>Valleypoint Campsite</title>
+    <script>
+      // Applied before React mounts so the page never flashes the wrong theme.
+      try {
+        var t = localStorage.getItem('vp_theme');
+        document.documentElement.setAttribute('data-theme', t === 'light' ? 'light' : 'dark');
+      } catch (e) { document.documentElement.setAttribute('data-theme', 'dark'); }
+    </script>
   </head>
   <body>
     <div id="root"></div>

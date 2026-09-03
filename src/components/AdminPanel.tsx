@@ -24,10 +24,12 @@ import {
   Users, 
   TrendingUp, 
   FileText,
+  Search,
   Clock
 } from 'lucide-react';
 import { CMSData, saveCMSData, resetToBlankSlate, seedDefaultData, HIGH_QUALITY_PRESET_IMAGES } from '../lib/cmsState';
 import { Booking, Accommodation, Service, FAQ } from '../types';
+import ThemeToggle from './ThemeToggle';
 
 interface AdminPanelProps {
   currentData: CMSData;
@@ -70,7 +72,11 @@ export default function AdminPanel({
   const [payInstr, setPayInstr] = useState<any>(EMPTY_PAY_INSTR);
   const [savingPayInstr, setSavingPayInstr] = useState(false);
 
-  const [showArchivedBookings, setShowArchivedBookings] = useState(false);
+  // Manage Bookings: which sub-tab is open, plus the reference/name search box.
+  const [bookingFilter, setBookingFilter] = useState<'unconfirmed' | 'confirmed' | 'archived'>('unconfirmed');
+  const [bookingSearch, setBookingSearch] = useState('');
+  const [holdHours, setHoldHours] = useState<number | ''>(48);
+  const [savingHold, setSavingHold] = useState(false);
 
   // Visitor analytics
   const [analytics, setAnalytics] = useState<any>(null);
@@ -88,12 +94,63 @@ export default function AdminPanel({
 
   useEffect(() => {
     if (activeTab === 'analytics') loadAnalytics();
+    // Bookings can be created from the public site while this panel sits open,
+    // so re-pull the list every time the tab is opened rather than only on login.
+    if (activeTab === 'bookings' && isLoggedIn) onRefreshBookings();
   }, [activeTab]);
+
+  useEffect(() => {
+    if (!isLoggedIn) return;
+    const token = sessionStorage.getItem('valleypoint_admin_token') || '';
+    fetch('/api/admin/ops-settings', { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => (r.ok ? r.json() : Promise.reject(new Error('failed'))))
+      .then(d => setHoldHours(Number(d.pendingHoldHours) || 48))
+      .catch(() => { /* keep the default */ });
+  }, [isLoggedIn]);
+
+  const saveHoldWindow = () => {
+    const token = sessionStorage.getItem('valleypoint_admin_token') || '';
+    setSavingHold(true);
+    fetch('/api/admin/ops-settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ pendingHoldHours: Number(holdHours) }),
+    })
+      .then(r => (r.ok ? r.json() : r.json().then(e => Promise.reject(new Error(e.error)))))
+      .then(d => { triggerToast(`Unpaid reservations now expire after ${d.pendingHoldHours} hours.`); onRefreshBookings(); })
+      .catch(err => alert(err.message || 'Could not save the hold window.'))
+      .finally(() => setSavingHold(false));
+  };
 
   // Pull the authoritative booking list from the server whenever the admin is logged in.
   useEffect(() => {
     if (isLoggedIn) onRefreshBookings();
   }, [isLoggedIn]);
+
+  // Holding a token string is not the same as holding a VALID one. Verify it on
+  // mount, and drop straight back to the login form if the server rejects it.
+  useEffect(() => {
+    if (!isLoggedIn) return;
+    const token = sessionStorage.getItem('valleypoint_admin_token') || '';
+    fetch('/api/admin/ops-settings', { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => {
+        if (r.status === 401) {
+          sessionStorage.removeItem('valleypoint_admin_token');
+          setIsLoggedIn(false);
+          setLoginError('Your session expired. Please log in again.');
+        }
+      })
+      .catch(() => { /* offline - leave the panel alone */ });
+  }, []);
+
+  useEffect(() => {
+    const expired = () => {
+      setIsLoggedIn(false);
+      setLoginError('Your session expired. Please log in again.');
+    };
+    window.addEventListener('vp-admin-session-expired', expired);
+    return () => window.removeEventListener('vp-admin-session-expired', expired);
+  }, []);
 
   useEffect(() => {
     if (!isLoggedIn) return;
@@ -278,7 +335,8 @@ export default function AdminPanel({
                 required
                 value={usernameInput}
                 onChange={e => setUsernameInput(e.target.value)}
-                placeholder="valleypoint2002@gmail.com"
+                placeholder="Enter admin email"
+                autoComplete="off"
                 className="w-full bg-pine-950 border border-pine-850 rounded-xl py-2.5 px-4 text-sm text-cream-100 focus:outline-none focus:border-gold-500 transition-all font-mono"
               />
             </div>
@@ -290,7 +348,8 @@ export default function AdminPanel({
                 required
                 value={passwordInput}
                 onChange={e => setPasswordInput(e.target.value)}
-                placeholder="••••••••••••"
+                placeholder="Enter password"
+                autoComplete="off"
                 className="w-full bg-pine-950 border border-pine-850 rounded-xl py-2.5 px-4 text-sm text-cream-100 focus:outline-none focus:border-gold-500 transition-all font-mono"
               />
             </div>
@@ -304,7 +363,7 @@ export default function AdminPanel({
             <button
               type="submit"
               disabled={isLoggingIn}
-              className="w-full py-3 rounded-xl bg-gold-500 text-pine-950 font-display font-black text-xs uppercase tracking-wider transition-all cursor-pointer flex items-center justify-center gap-2 hover:bg-gold-400 active:scale-[0.99] disabled:opacity-50 font-bold"
+              className="w-full py-3 rounded-xl bg-gold-500 text-ink font-display font-black text-xs uppercase tracking-wider transition-all cursor-pointer flex items-center justify-center gap-2 hover:bg-gold-400 active:scale-[0.99] disabled:opacity-50 font-bold"
             >
               <span>{isLoggingIn ? 'Verifying Workspace Access...' : 'Open Workspace Control'}</span>
             </button>
@@ -427,8 +486,12 @@ export default function AdminPanel({
       });
   };
 
-  const handleDeleteBooking = (bookingId: string) => {
-    if (!confirm(`Are you sure you want to reject reservation record ${bookingId}?`)) return;
+  // Permanently purges an already-cancelled booking from the database. Not reversible.
+  const handleDeleteBooking = (bookingId: string, reference?: string) => {
+    const label = reference || `#${bookingId}`;
+    if (!confirm(`Permanently DELETE reservation ${label}?
+
+This erases the booking, its payment record and its room hold from the database. It cannot be undone — use Cancel instead if you only want to free up the dates.`)) return;
     const token = sessionStorage.getItem('valleypoint_admin_token') || '';
 
     fetch(`/api/bookings/${bookingId}`, {
@@ -440,7 +503,7 @@ export default function AdminPanel({
       return res.json();
     })
     .then(() => {
-      triggerToast(`Booking record ${bookingId} rejected.`);
+      triggerToast(`Reservation ${label} permanently deleted.`);
       onRefreshBookings();
     })
     .catch(err => {
@@ -454,7 +517,7 @@ export default function AdminPanel({
       
       {/* Toast Notification HUD */}
       {toastMsg && (
-        <div className="fixed top-28 right-8 z-[120] bg-gold-500 text-pine-950 px-5 py-3 rounded-xl font-display font-bold text-xs uppercase tracking-wider shadow-2xl flex items-center gap-2 animate-bounce border border-gold-300">
+        <div className="fixed top-28 right-8 z-[120] bg-gold-500 text-ink px-5 py-3 rounded-xl font-display font-bold text-xs uppercase tracking-wider shadow-2xl flex items-center gap-2 animate-bounce border border-gold-300">
           <Sparkles className="w-4 h-4 shrink-0" />
           <span>{toastMsg}</span>
         </div>
@@ -463,7 +526,7 @@ export default function AdminPanel({
       {/* Main Admin Header */}
       <div className="bg-pine-900 border-b border-pine-850 p-6 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div className="flex items-center gap-3">
-          <div className="p-3 bg-gold-500 rounded-2xl text-pine-950 shadow-lg shadow-gold-500/15">
+          <div className="p-3 bg-gold-500 rounded-2xl text-ink shadow-lg shadow-gold-500/15">
             <Settings className="w-6 h-6 animate-spin" style={{ animationDuration: '8s' }} />
           </div>
           <div>
@@ -480,6 +543,7 @@ export default function AdminPanel({
         </div>
 
         <div className="flex items-center gap-2 w-full sm:w-auto">
+          <ThemeToggle />
           <button 
             onClick={onClose}
             className="flex-1 sm:flex-none py-2.5 px-5 rounded-xl bg-pine-950 border border-pine-800 text-neutral-300 hover:text-cream-50 font-display font-bold text-xs uppercase tracking-wider transition-all cursor-pointer flex items-center justify-center gap-2"
@@ -504,7 +568,7 @@ export default function AdminPanel({
               onClick={() => setActiveTab('dashboard')}
               className={`w-full py-3 px-4 rounded-xl text-xs font-semibold flex items-center gap-3 transition-all ${
                 activeTab === 'dashboard'
-                  ? 'bg-gold-500 text-pine-950 font-bold shadow-lg shadow-gold-500/10'
+                  ? 'bg-gold-500 text-ink font-bold shadow-lg shadow-gold-500/10'
                   : 'text-neutral-400 hover:text-cream-100 hover:bg-pine-900/40'
               }`}
             >
@@ -516,7 +580,7 @@ export default function AdminPanel({
               onClick={() => setActiveTab('hero')}
               className={`w-full py-3 px-4 rounded-xl text-xs font-semibold flex items-center gap-3 transition-all ${
                 activeTab === 'hero'
-                  ? 'bg-gold-500 text-pine-950 font-bold shadow-lg shadow-gold-500/10'
+                  ? 'bg-gold-500 text-ink font-bold shadow-lg shadow-gold-500/10'
                   : 'text-neutral-400 hover:text-cream-100 hover:bg-pine-900/40'
               }`}
             >
@@ -528,7 +592,7 @@ export default function AdminPanel({
               onClick={() => setActiveTab('accommodations')}
               className={`w-full py-3 px-4 rounded-xl text-xs font-semibold flex items-center gap-3 transition-all ${
                 activeTab === 'accommodations'
-                  ? 'bg-gold-500 text-pine-950 font-bold shadow-lg shadow-gold-500/10'
+                  ? 'bg-gold-500 text-ink font-bold shadow-lg shadow-gold-500/10'
                   : 'text-neutral-400 hover:text-cream-100 hover:bg-pine-900/40'
               }`}
             >
@@ -540,7 +604,7 @@ export default function AdminPanel({
               onClick={() => setActiveTab('backstory')}
               className={`w-full py-3 px-4 rounded-xl text-xs font-semibold flex items-center gap-3 transition-all ${
                 activeTab === 'backstory'
-                  ? 'bg-gold-500 text-pine-950 font-bold shadow-lg shadow-gold-500/10'
+                  ? 'bg-gold-500 text-ink font-bold shadow-lg shadow-gold-500/10'
                   : 'text-neutral-400 hover:text-cream-100 hover:bg-pine-900/40'
               }`}
             >
@@ -552,7 +616,7 @@ export default function AdminPanel({
               onClick={() => setActiveTab('services')}
               className={`w-full py-3 px-4 rounded-xl text-xs font-semibold flex items-center gap-3 transition-all ${
                 activeTab === 'services'
-                  ? 'bg-gold-500 text-pine-950 font-bold shadow-lg shadow-gold-500/10'
+                  ? 'bg-gold-500 text-ink font-bold shadow-lg shadow-gold-500/10'
                   : 'text-neutral-400 hover:text-cream-100 hover:bg-pine-900/40'
               }`}
             >
@@ -564,7 +628,7 @@ export default function AdminPanel({
               onClick={() => setActiveTab('bookings')}
               className={`w-full py-3 px-4 rounded-xl text-xs font-semibold flex items-center gap-3 transition-all relative ${
                 activeTab === 'bookings'
-                  ? 'bg-gold-500 text-pine-950 font-bold shadow-lg shadow-gold-500/10'
+                  ? 'bg-gold-500 text-ink font-bold shadow-lg shadow-gold-500/10'
                   : 'text-neutral-400 hover:text-cream-100 hover:bg-pine-900/40'
               }`}
             >
@@ -581,7 +645,7 @@ export default function AdminPanel({
               onClick={() => setActiveTab('analytics')}
               className={`w-full py-3 px-4 rounded-xl text-xs font-semibold flex items-center gap-3 transition-all ${
                 activeTab === 'analytics'
-                  ? 'bg-gold-500 text-pine-950 font-bold shadow-lg shadow-gold-500/10'
+                  ? 'bg-gold-500 text-ink font-bold shadow-lg shadow-gold-500/10'
                   : 'text-neutral-400 hover:text-cream-100 hover:bg-pine-900/40'
               }`}
             >
@@ -593,7 +657,7 @@ export default function AdminPanel({
               onClick={() => setActiveTab('settings')}
               className={`w-full py-3 px-4 rounded-xl text-xs font-semibold flex items-center gap-3 transition-all ${
                 activeTab === 'settings'
-                  ? 'bg-gold-500 text-pine-950 font-bold shadow-lg shadow-gold-500/10'
+                  ? 'bg-gold-500 text-ink font-bold shadow-lg shadow-gold-500/10'
                   : 'text-neutral-400 hover:text-cream-100 hover:bg-pine-900/40'
               }`}
             >
@@ -745,7 +809,7 @@ export default function AdminPanel({
                     </p>
                   </div>
                   
-                  <label className="py-2 px-3.5 rounded-xl bg-gold-500 hover:bg-gold-400 text-pine-950 font-display font-bold text-xs transition-all cursor-pointer flex items-center gap-1.5 shrink-0 self-stretch sm:self-auto justify-center">
+                  <label className="py-2 px-3.5 rounded-xl bg-gold-500 hover:bg-gold-400 text-ink font-display font-bold text-xs transition-all cursor-pointer flex items-center gap-1.5 shrink-0 self-stretch sm:self-auto justify-center">
                     <span>{isUploading ? 'Uploading Image...' : 'Upload Image File'}</span>
                     <Plus className="w-3.5 h-3.5" />
                     <input 
@@ -808,7 +872,7 @@ export default function AdminPanel({
                 </div>
                 <button 
                   onClick={() => handleSave(tempData)}
-                  className="py-2.5 px-4 rounded-xl bg-gold-500 hover:bg-gold-400 text-pine-950 font-display font-black text-xs uppercase tracking-wider flex items-center gap-1.5 transition-all shadow-lg cursor-pointer"
+                  className="py-2.5 px-4 rounded-xl bg-gold-500 hover:bg-gold-400 text-ink font-display font-black text-xs uppercase tracking-wider flex items-center gap-1.5 transition-all shadow-lg cursor-pointer"
                 >
                   <Save className="w-4 h-4" /> Save Billboard
                 </button>
@@ -842,7 +906,7 @@ export default function AdminPanel({
                       >
                         Use Default Preset
                       </button>
-                      <label className="py-2.5 px-4 rounded-xl bg-gold-500 hover:bg-gold-400 text-pine-950 font-display font-bold text-xs transition-all cursor-pointer flex items-center gap-1">
+                      <label className="py-2.5 px-4 rounded-xl bg-gold-500 hover:bg-gold-400 text-ink font-display font-bold text-xs transition-all cursor-pointer flex items-center gap-1">
                         <span>{isUploading ? '...' : 'Upload'}</span>
                         <input 
                           type="file" 
@@ -939,7 +1003,7 @@ export default function AdminPanel({
                 </div>
                 <button 
                   onClick={() => handleSave(tempData)}
-                  className="py-2.5 px-4 rounded-xl bg-gold-500 hover:bg-gold-400 text-pine-950 font-display font-black text-xs uppercase tracking-wider flex items-center gap-1.5 transition-all shadow-lg cursor-pointer"
+                  className="py-2.5 px-4 rounded-xl bg-gold-500 hover:bg-gold-400 text-ink font-display font-black text-xs uppercase tracking-wider flex items-center gap-1.5 transition-all shadow-lg cursor-pointer"
                 >
                   <Save className="w-4 h-4" /> Save Stays
                 </button>
@@ -1054,7 +1118,7 @@ export default function AdminPanel({
                               }}
                               className="flex-1 bg-pine-900 border border-pine-800 focus:border-gold-500/80 rounded-xl px-4 py-2 text-xs text-cream-50 focus:outline-none font-mono"
                             />
-                            <label className="py-2 px-3 rounded-xl bg-gold-500 hover:bg-gold-400 text-pine-950 font-display font-bold text-xs transition-all cursor-pointer flex items-center justify-center shrink-0">
+                            <label className="py-2 px-3 rounded-xl bg-gold-500 hover:bg-gold-400 text-ink font-display font-bold text-xs transition-all cursor-pointer flex items-center justify-center shrink-0">
                               <span>{isUploading ? '...' : 'Upload'}</span>
                               <input 
                                 type="file" 
@@ -1140,7 +1204,7 @@ export default function AdminPanel({
                 </div>
                 <button 
                   onClick={() => handleSave(tempData)}
-                  className="py-2.5 px-4 rounded-xl bg-gold-500 hover:bg-gold-400 text-pine-950 font-display font-black text-xs uppercase tracking-wider flex items-center gap-1.5 transition-all shadow-lg cursor-pointer"
+                  className="py-2.5 px-4 rounded-xl bg-gold-500 hover:bg-gold-400 text-ink font-display font-black text-xs uppercase tracking-wider flex items-center gap-1.5 transition-all shadow-lg cursor-pointer"
                 >
                   <Save className="w-4 h-4" /> Save Backstory
                 </button>
@@ -1344,7 +1408,7 @@ export default function AdminPanel({
                 </div>
                 <button 
                   onClick={() => handleSave(tempData)}
-                  className="py-2.5 px-4 rounded-xl bg-gold-500 hover:bg-gold-400 text-pine-950 font-display font-black text-xs uppercase tracking-wider flex items-center gap-1.5 transition-all shadow-lg cursor-pointer"
+                  className="py-2.5 px-4 rounded-xl bg-gold-500 hover:bg-gold-400 text-ink font-display font-black text-xs uppercase tracking-wider flex items-center gap-1.5 transition-all shadow-lg cursor-pointer"
                 >
                   <Save className="w-4 h-4" /> Save Services
                 </button>
@@ -1417,7 +1481,7 @@ export default function AdminPanel({
                               }}
                               className="flex-1 bg-pine-900 border border-pine-800 focus:border-gold-500/80 rounded-xl px-4 py-2 text-xs text-cream-50 focus:outline-none font-mono"
                             />
-                            <label className="py-2 px-3 rounded-xl bg-gold-500 hover:bg-gold-400 text-pine-950 font-display font-bold text-xs transition-all cursor-pointer flex items-center justify-center shrink-0">
+                            <label className="py-2 px-3 rounded-xl bg-gold-500 hover:bg-gold-400 text-ink font-display font-bold text-xs transition-all cursor-pointer flex items-center justify-center shrink-0">
                               <span>{isUploading ? '...' : 'Upload'}</span>
                               <input 
                                 type="file" 
@@ -1495,46 +1559,130 @@ export default function AdminPanel({
 
           {/* TAB 6: BOOKINGS LIST */}
           {activeTab === 'bookings' && (() => {
-            const activeBookings = bookings.filter(b => b.status !== 'rejected' && b.status !== 'cancelled');
-            const archivedCount = bookings.length - activeBookings.length;
-            const rows = showArchivedBookings ? bookings : activeBookings;
+            const unconfirmed = bookings.filter(b => b.status === 'pending');
+            const confirmed   = bookings.filter(b => b.status === 'confirmed');
+            const archived    = bookings.filter(b => b.status === 'cancelled' || b.status === 'rejected');
+
+            const q = bookingSearch.trim().toLowerCase();
+            const matches = (b: Booking) =>
+              String(b.reference || '').toLowerCase().includes(q) ||
+              String(b.customerName || '').toLowerCase().includes(q) ||
+              String(b.customerEmail || '').toLowerCase().includes(q) ||
+              String(b.customerPhone || '').toLowerCase().includes(q);
+
+            // A search looks across every tab, so a reference is always findable
+            // no matter which list it currently sits in.
+            const searching = q.length > 0;
+            const source = bookingFilter === 'confirmed' ? confirmed
+                         : bookingFilter === 'archived'  ? archived
+                         : unconfirmed;
+            const rows = searching ? bookings.filter(matches) : source;
+
+            const TABS = [
+              { key: 'unconfirmed' as const, label: 'Unconfirmed', sub: 'Awaiting payment', count: unconfirmed.length },
+              { key: 'confirmed'   as const, label: 'Confirmed',   sub: 'Payment verified', count: confirmed.length },
+              { key: 'archived'    as const, label: 'Cancelled / Removed', sub: 'No longer active', count: archived.length },
+            ];
+
+            const emptyCopy = searching
+              ? 'No booking matches that search.'
+              : bookingFilter === 'unconfirmed' ? 'No bookings awaiting payment.'
+              : bookingFilter === 'confirmed'   ? 'No confirmed bookings yet.'
+              : 'Nothing cancelled or removed.';
+
             return (
-            <div className="space-y-6 animate-fadeIn" id="admin_tab_bookings">
+            <div className="space-y-5 animate-fadeIn" id="admin_tab_bookings">
               <div className="flex items-start justify-between gap-4 flex-wrap">
                 <div>
                   <h3 className="font-serif font-black text-xl text-cream-100">Live Customer Bookings Dashboard</h3>
-                  <p className="text-xs text-neutral-400 mt-1">Verify payments, approve requests, and manage cancellations. Rejected and cancelled records are hidden by default.</p>
+                  <p className="text-xs text-neutral-400 mt-1">Verify payments, approve reservations, and manage cancellations.</p>
                 </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={onRefreshBookings}
-                    className="py-2 px-3 rounded-xl bg-pine-900 border border-pine-800 hover:border-gold-500/50 text-neutral-300 font-display font-bold text-[10px] uppercase tracking-wider transition-all inline-flex items-center gap-1.5"
-                  >
-                    <RefreshCw className="w-3 h-3" /> Refresh
-                  </button>
-                  {archivedCount > 0 && (
-                    <button
-                      onClick={() => setShowArchivedBookings(v => !v)}
-                      className="py-2 px-3 rounded-xl bg-pine-900 border border-pine-800 hover:border-pine-700 text-neutral-400 font-display font-bold text-[10px] uppercase tracking-wider transition-all"
-                    >
-                      {showArchivedBookings ? 'Hide' : 'Show'} archived ({archivedCount})
-                    </button>
-                  )}
-                </div>
+                <button
+                  onClick={onRefreshBookings}
+                  className="py-2 px-3 rounded-xl bg-pine-900 border border-pine-800 hover:border-gold-500/50 text-neutral-300 font-display font-bold text-[10px] uppercase tracking-wider transition-all inline-flex items-center gap-1.5"
+                >
+                  <RefreshCw className="w-3 h-3" /> Refresh
+                </button>
               </div>
+
+              {/* Sub-tabs */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                {TABS.map(t => {
+                  const active = !searching && bookingFilter === t.key;
+                  return (
+                    <button
+                      key={t.key}
+                      onClick={() => { setBookingFilter(t.key); setBookingSearch(''); }}
+                      className={`p-3 rounded-xl border text-left transition-all ${
+                        active
+                          ? 'bg-gold-500/10 border-gold-500'
+                          : 'bg-pine-950 border-pine-850 hover:border-pine-700'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className={`font-display font-bold text-xs ${active ? 'text-gold-300' : 'text-cream-100'}`}>{t.label}</span>
+                        <span className={`text-[10px] font-black py-0.5 px-2 rounded-full ${
+                          t.key === 'unconfirmed' && t.count > 0
+                            ? 'bg-amber-500/20 text-amber-300'
+                            : active ? 'bg-gold-500/20 text-gold-300' : 'bg-pine-900 text-neutral-400'
+                        }`}>{t.count}</span>
+                      </div>
+                      <span className="text-[10px] text-neutral-500 block mt-0.5">{t.sub}</span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Search */}
+              <div className="relative">
+                <Search className="w-4 h-4 text-neutral-500 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                <input
+                  type="text"
+                  value={bookingSearch}
+                  onChange={e => setBookingSearch(e.target.value)}
+                  placeholder="Search all bookings by reference (VP-XXXXXX), name, email, or phone..."
+                  className="w-full bg-pine-950 border border-pine-850 focus:border-gold-500 rounded-xl py-2.5 pl-10 pr-24 text-xs text-cream-100 outline-none transition-colors"
+                />
+                {!searching && bookingFilter === 'archived' && (
+                <div className="text-[11px] text-neutral-400 bg-pine-950 border border-pine-850 rounded-xl px-3 py-2">
+                  These reservations no longer hold any dates. <span className="text-gold-400 font-semibold">Restore</span> puts one back in Unconfirmed;
+                  <span className="text-red-400 font-semibold"> Delete</span> erases it from the database permanently.
+                </div>
+              )}
+
+              {searching && (
+                  <button
+                    onClick={() => setBookingSearch('')}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] uppercase font-bold tracking-wider text-neutral-400 hover:text-gold-400 py-1 px-2 rounded-lg border border-pine-800"
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+
+              {searching && (
+                <div className="text-[11px] text-gold-400/90 bg-gold-500/5 border border-gold-500/20 rounded-xl px-3 py-2">
+                  Showing <span className="font-bold">{rows.length}</span> result{rows.length === 1 ? '' : 's'} across <span className="font-bold">all</span> bookings.
+                </div>
+              )}
 
               {rows.length === 0 ? (
                 <div className="py-16 border border-dashed border-pine-800 rounded-3xl text-center text-neutral-400 text-xs flex flex-col items-center justify-center space-y-2">
-                  <Calendar className="w-8 h-8 text-neutral-600 animate-pulse" />
-                  <span>No active customer bookings.</span>
+                  <Calendar className="w-8 h-8 text-neutral-600" />
+                  <span>{emptyCopy}</span>
+                  {!searching && bookings.length > 0 && (
+                    <span className="text-[11px] text-neutral-500">
+                      You have {bookings.length} reservation{bookings.length === 1 ? '' : 's'} in the other tabs above.
+                    </span>
+                  )}
                 </div>
               ) : (
                 <div className="bg-pine-950 border border-pine-850 rounded-2xl overflow-hidden" id="bookings_table_wrapper">
                   <div className="overflow-x-auto">
-                    <table className="w-full min-w-[700px] border-collapse text-xs">
+                    <table className="w-full min-w-[760px] border-collapse text-xs">
                       <thead>
                         <tr className="bg-pine-900/80 text-neutral-400 text-[10px] uppercase tracking-widest font-display font-black border-b border-pine-850">
-                          <th className="p-4 text-left">Ref ID</th>
+                          <th className="p-4 text-left">Reference</th>
                           <th className="p-4 text-left">Customer</th>
                           <th className="p-4 text-left">Stay Plot</th>
                           <th className="p-4 text-left">Check In/Out</th>
@@ -1545,11 +1693,14 @@ export default function AdminPanel({
                       </thead>
                       <tbody className="divide-y divide-pine-900/60 font-medium">
                         {rows.map((b) => {
-                          // Find stayed cabin name
                           const cabinName = currentData.accommodations.find(a => a.id === b.accommodationId)?.name || 'Custom Accommodation';
+                          const isArchived = b.status === 'cancelled' || b.status === 'rejected';
                           return (
-                            <tr key={b.id} className="hover:bg-pine-900/25 transition-colors" id={`booking_row_${b.id}`}>
-                              <td className="p-4 font-mono font-bold text-gold-400">{b.id}</td>
+                            <tr key={b.id} className={`hover:bg-pine-900/25 transition-colors ${isArchived ? 'opacity-60' : ''}`} id={`booking_row_${b.id}`}>
+                              <td className="p-4">
+                                <div className="font-mono font-bold text-gold-400">{b.reference || b.id}</div>
+                                <div className="text-[9px] text-neutral-600 font-mono">id {b.id}</div>
+                              </td>
                               <td className="p-4 text-left">
                                 <div className="font-bold text-cream-100">{b.customerName}</div>
                                 <div className="text-[10px] text-neutral-500 font-mono">{b.customerEmail} | {b.customerPhone}</div>
@@ -1563,44 +1714,56 @@ export default function AdminPanel({
                                 ₱{b.totalAmount.toLocaleString()}
                               </td>
                               <td className="p-4 text-center">
-                                <span className={`inline-block px-2.5 py-1 rounded-full text-[9px] font-black uppercase tracking-wider font-display ${
-                                  b.status === 'confirmed' 
+                                <span className={`inline-block px-2.5 py-1 rounded-full text-[9px] font-black uppercase tracking-wider font-display whitespace-nowrap ${
+                                  b.status === 'confirmed'
                                     ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
                                     : b.status === 'pending'
                                     ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
                                     : 'bg-neutral-500/10 text-neutral-400 border border-neutral-500/20'
                                 }`}>
-                                  {b.status}
+                                  {b.status === 'pending' ? 'unpaid' : b.status}
                                 </span>
                               </td>
                               <td className="p-4 text-right space-x-1.5 whitespace-nowrap">
-                                {b.status !== 'confirmed' && (
+                                {b.status === 'pending' && (
                                   <button
                                     onClick={() => handleMarkPaid(b.id)}
-                                    className="p-1 px-2 rounded bg-emerald-500/10 hover:bg-emerald-500 text-emerald-400 hover:text-pine-950 font-display font-black text-[9px] uppercase tracking-wider transition-all cursor-pointer inline-flex items-center gap-1 border border-emerald-500/20"
+                                    className="p-1 px-2 rounded bg-emerald-500/10 hover:bg-emerald-500 text-emerald-400 hover:text-ink font-display font-black text-[9px] uppercase tracking-wider transition-all cursor-pointer inline-flex items-center gap-1 border border-emerald-500/20"
                                     title="Confirm payment received"
                                   >
                                     <CheckCircle className="w-3 h-3" />
                                     <span>Confirm Payment</span>
                                   </button>
                                 )}
-                                {b.status !== 'cancelled' && (
+                                {isArchived ? (
+                                  <>
+                                    <button
+                                      onClick={() => handleUpdateBookingStatus(b.id, 'pending')}
+                                      className="p-1 px-2 rounded bg-pine-900 border border-pine-800 hover:border-gold-500/50 text-neutral-400 hover:text-gold-400 font-display font-black text-[9px] uppercase tracking-wider transition-all cursor-pointer inline-flex items-center gap-1"
+                                      title="Send back to Unconfirmed"
+                                    >
+                                      <RotateCcw className="w-3 h-3" />
+                                      <span>Restore</span>
+                                    </button>
+                                    <button
+                                      onClick={() => handleDeleteBooking(b.id, b.reference)}
+                                      className="p-1 px-2 rounded bg-red-500/10 hover:bg-red-600 text-red-400 hover:text-white border border-red-500/30 font-display font-black text-[9px] uppercase tracking-wider transition-all cursor-pointer inline-flex items-center gap-1"
+                                      title="Permanently delete this record from the database"
+                                    >
+                                      <Trash2 className="w-3 h-3" />
+                                      <span>Delete</span>
+                                    </button>
+                                  </>
+                                ) : (
                                   <button
                                     onClick={() => handleUpdateBookingStatus(b.id, 'cancelled')}
                                     className="p-1 px-2 rounded bg-red-500/10 hover:bg-red-500 text-red-400 hover:text-white font-display font-black text-[9px] uppercase tracking-wider transition-all cursor-pointer inline-flex items-center gap-1 border border-red-500/20"
-                                    title="Cancel Stay"
+                                    title="Cancel this reservation (reversible)"
                                   >
                                     <XCircle className="w-3 h-3" />
                                     <span>Cancel</span>
                                   </button>
                                 )}
-                                <button
-                                  onClick={() => handleDeleteBooking(b.id)}
-                                  className="p-1 px-2 rounded bg-pine-900 border border-pine-800 text-neutral-500 hover:text-red-400 hover:border-red-500/30 font-display font-black text-[9px] uppercase tracking-wider transition-all cursor-pointer inline-flex items-center gap-1"
-                                  title="Purge Record"
-                                >
-                                  <Trash2 className="w-3 h-3" />
-                                </button>
                               </td>
                             </tr>
                           );
@@ -1611,7 +1774,7 @@ export default function AdminPanel({
                 </div>
               )}
             </div>
-          );
+            );
           })()}
 
           {activeTab === 'analytics' && (
@@ -1812,10 +1975,46 @@ export default function AdminPanel({
                   <button
                     onClick={savePaymentInstructions}
                     disabled={savingPayInstr}
-                    className="py-2.5 px-5 rounded-xl bg-gold-500 hover:bg-gold-400 text-pine-950 font-display font-black text-xs uppercase tracking-wider transition-all cursor-pointer inline-flex items-center gap-2 disabled:opacity-50"
+                    className="py-2.5 px-5 rounded-xl bg-gold-500 hover:bg-gold-400 text-ink font-display font-black text-xs uppercase tracking-wider transition-all cursor-pointer inline-flex items-center gap-2 disabled:opacity-50"
                   >
                     <Save className="w-4 h-4" />
                     <span>{savingPayInstr ? 'Saving...' : 'Publish Payment Instructions'}</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* ---- RESERVATION HOLD WINDOW ---- */}
+              <div className="space-y-4">
+                <div>
+                  <h3 className="font-serif font-black text-xl text-cream-100">Unpaid Reservation Hold</h3>
+                  <p className="text-xs text-neutral-400 mt-1">
+                    How long a reservation keeps its dates while waiting for payment. Once this passes, the booking is
+                    cancelled automatically and the room goes back on sale. Checked every 15 minutes.
+                  </p>
+                </div>
+                <div className="bg-pine-950 p-6 rounded-2xl border border-pine-850 space-y-4 max-w-md text-left">
+                  <label className="text-[11px] uppercase font-bold tracking-widest text-neutral-400 font-display block">Hold window (hours)</label>
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="number"
+                      min={1}
+                      max={720}
+                      value={holdHours}
+                      onChange={e => setHoldHours(e.target.value === '' ? '' : Number(e.target.value))}
+                      className="w-32 bg-pine-900 border border-pine-800 rounded-xl py-2.5 px-4 text-sm text-cream-100 font-mono focus:outline-none focus:border-gold-500"
+                    />
+                    <span className="text-xs text-neutral-500">= {holdHours ? (Number(holdHours) / 24).toFixed(1) : '0'} days</span>
+                  </div>
+                  <p className="text-[11px] text-neutral-500">
+                    Keep this in step with the wording on your payment instructions, which currently promises release after 48 hours.
+                  </p>
+                  <button
+                    onClick={saveHoldWindow}
+                    disabled={savingHold || !holdHours}
+                    className="py-2.5 px-5 rounded-xl bg-gold-500 hover:bg-gold-400 text-ink font-display font-black text-xs uppercase tracking-wider transition-all cursor-pointer inline-flex items-center gap-2 disabled:opacity-50"
+                  >
+                    <Save className="w-4 h-4" />
+                    <span>{savingHold ? 'Saving...' : 'Save Hold Window'}</span>
                   </button>
                 </div>
               </div>
@@ -1880,9 +2079,9 @@ export default function AdminPanel({
                       alert('Failed to change password. Please check your connection.');
                     });
                   }}
-                  className="py-2.5 px-5 rounded-xl bg-gold-500 hover:bg-gold-400 text-pine-950 font-display font-black text-xs uppercase tracking-wider transition-all cursor-pointer inline-flex items-center gap-2 font-bold font-sans"
+                  className="py-2.5 px-5 rounded-xl bg-gold-500 hover:bg-gold-400 text-ink font-display font-black text-xs uppercase tracking-wider transition-all cursor-pointer inline-flex items-center gap-2 font-bold font-sans"
                 >
-                  <Save className="w-4 h-4 text-pine-950" />
+                  <Save className="w-4 h-4 text-ink" />
                   <span>Update Password</span>
                 </button>
               </div>

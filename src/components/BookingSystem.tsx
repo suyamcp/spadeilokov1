@@ -25,6 +25,9 @@ import {
 import { Accommodation, AddOn, Booking } from '../types';
 import { ACCOMMODATIONS, ADD_ONS } from '../data';
 
+// Reservation statuses that occupy a room. Mirrors the server's availability query.
+const HOLDS_A_ROOM = new Set(['confirmed', 'pending', 'paid_pending_review']);
+
 // Helper to format date as YYYY-MM-DD
 const formatDateStr = (date: Date): string => {
   const y = date.getFullYear();
@@ -168,7 +171,11 @@ export default function BookingSystem({
   const getOccupancyOnDate = (accId: string, dateStr: string): number => {
     let count = 0;
     bookings.forEach(booking => {
-      if (booking.status === 'cancelled') return;
+      // Whitelist, not blacklist: only these statuses actually hold a room.
+      // Blacklisting just 'cancelled' let 'rejected' (and checked_out, no_show)
+      // keep blocking dates long after the reservation was dropped. Must stay in
+      // step with the status filter on the server's /api/availability query.
+      if (!HOLDS_A_ROOM.has(booking.status)) return;
       if (booking.accommodationId === accId) {
         // A booking occupies dates from Check-In up to (but not including) Check-Out
         if (dateStr >= booking.checkIn && dateStr < booking.checkOut) {
@@ -480,7 +487,7 @@ export default function BookingSystem({
     let itemClass = '';
 
     if (isSelectedStart || isSelectedEnd) {
-      itemClass = 'bg-gold-500 text-pine-950 font-bold scale-105 z-10 shadow-lg';
+      itemClass = 'bg-gold-500 text-ink font-bold scale-105 z-10 shadow-lg';
     } else if (isInSelectedRange) {
       itemClass = 'bg-gold-500/30 text-gold-200 border-y border-gold-500/20';
     } else if (isInHoverRange) {
@@ -540,21 +547,21 @@ export default function BookingSystem({
             <div className="flex justify-center items-center gap-4 mb-8" id="step_indicator_bar">
               <div className="flex items-center gap-2">
                 <span className={`w-7 h-7 rounded-full flex items-center justify-center font-semibold text-xs border ${
-                  bookingStep >= 1 ? 'bg-gold-500 text-pine-950 border-gold-500' : 'border-neutral-700 text-neutral-400'
+                  bookingStep >= 1 ? 'bg-gold-500 text-ink border-gold-500' : 'border-neutral-700 text-neutral-400'
                 }`}>1</span>
                 <span className={`text-xs font-medium ${bookingStep >= 1 ? 'text-gold-400' : 'text-neutral-500'}`}>Dates &amp; Lodging</span>
               </div>
               <div className="w-8 h-[1px] bg-pine-800" />
               <div className="flex items-center gap-2">
                 <span className={`w-7 h-7 rounded-full flex items-center justify-center font-semibold text-xs border ${
-                  bookingStep >= 2 ? 'bg-gold-500 text-pine-950 border-gold-500' : 'border-neutral-700 text-neutral-400'
+                  bookingStep >= 2 ? 'bg-gold-500 text-ink border-gold-500' : 'border-neutral-700 text-neutral-400'
                 }`}>2</span>
                 <span className={`text-xs font-medium ${bookingStep >= 2 ? 'text-gold-400' : 'text-neutral-500'}`}>Guest Details</span>
               </div>
               <div className="w-8 h-[1px] bg-pine-800" />
               <div className="flex items-center gap-2">
                 <span className={`w-7 h-7 rounded-full flex items-center justify-center font-semibold text-xs border ${
-                  bookingStep >= 3 ? 'bg-gold-500 text-pine-950 border-gold-500' : 'border-neutral-700 text-neutral-400'
+                  bookingStep >= 3 ? 'bg-gold-500 text-ink border-gold-500' : 'border-neutral-700 text-neutral-400'
                 }`}>3</span>
                 <span className={`text-xs font-medium ${bookingStep >= 3 ? 'text-gold-400' : 'text-neutral-500'}`}>Reservation Ticket</span>
               </div>
@@ -617,7 +624,7 @@ export default function BookingSystem({
                             </div>
                           </div>
                           {isSelected && (
-                            <div className="absolute right-4 bottom-4 w-5 h-5 rounded-full bg-gold-500 flex items-center justify-center text-pine-950 shadow">
+                            <div className="absolute right-4 bottom-4 w-5 h-5 rounded-full bg-gold-500 flex items-center justify-center text-ink shadow">
                               <Check className="w-3.5 h-3.5 stroke-[3]" />
                             </div>
                           )}
@@ -790,7 +797,7 @@ export default function BookingSystem({
                     onClick={() => setBookingStep(2)}
                     className={`w-full py-4 px-6 rounded-2xl flex items-center justify-center gap-2 font-display font-semibold text-sm transition-all shadow-md group ${
                       checkIn && checkOut
-                        ? 'bg-gold-500 hover:bg-gold-400 text-pine-950 cursor-pointer hover:shadow-gold-500/20 hover:scale-[1.01]'
+                        ? 'bg-gold-500 hover:bg-gold-400 text-ink cursor-pointer hover:shadow-gold-500/20 hover:scale-[1.01]'
                         : 'bg-pine-950 text-neutral-600 border border-pine-800 cursor-not-allowed'
                     }`}
                     id="btn_continue_to_step_2"
@@ -1032,7 +1039,7 @@ export default function BookingSystem({
                         <button
                           type="submit"
                           disabled={isSubmitting}
-                          className="flex-3 py-3 px-6 rounded-xl bg-gold-500 hover:bg-gold-400 text-pine-950 font-display font-bold text-xs transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer"
+                          className="flex-3 py-3 px-6 rounded-xl bg-gold-500 hover:bg-gold-400 text-ink font-display font-bold text-xs transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer"
                         >
                           {isSubmitting ? (
                             <>
@@ -1061,88 +1068,88 @@ export default function BookingSystem({
                 className="max-w-2xl mx-auto py-4"
                 id="booking_step_3_ticket"
               >
-                <div className="bg-cream-100 rounded-3xl overflow-hidden shadow-2xl border-4 border-gold-500/30 text-pine-950 relative">
-                  <div className="absolute top-1/2 -left-3 w-6 h-6 rounded-full bg-pine-900 -translate-y-1/2" />
-                  <div className="absolute top-1/2 -right-3 w-6 h-6 rounded-full bg-pine-900 -translate-y-1/2" />
+                <div className="bg-paper-100 rounded-3xl overflow-hidden shadow-2xl border-4 border-[#c9a054]/30 text-ink relative">
+                  <div className="absolute top-1/2 -left-3 w-6 h-6 rounded-full bg-ink -translate-y-1/2" />
+                  <div className="absolute top-1/2 -right-3 w-6 h-6 rounded-full bg-ink -translate-y-1/2" />
 
                   {/* Header */}
-                  <div className="bg-pine-950 text-cream-50 p-6 flex justify-between items-center border-b border-gold-500/20">
+                  <div className="bg-ink text-paper-50 p-6 flex justify-between items-center border-b border-[#c9a054]/20">
                     <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-full border border-gold-400 flex items-center justify-center bg-pine-900 shrink-0">
-                        <span className="font-display font-bold text-xs text-gold-400">VP</span>
+                      <div className="w-10 h-10 rounded-full border border-[#e0bb73] flex items-center justify-center bg-ink shrink-0">
+                        <span className="font-display font-bold text-xs text-[#e0bb73]">VP</span>
                       </div>
                       <div>
-                        <h4 className="font-display font-extrabold text-sm tracking-wide text-gold-400">VALLEYPOINT CAMPSITE</h4>
-                        <span className="text-[10px] text-neutral-400 flex items-center gap-0.5 uppercase tracking-widest font-bold font-display"><MapPin className="w-3 h-3 text-gold-500" /> Tuba, Benguet</span>
+                        <h4 className="font-display font-extrabold text-sm tracking-wide text-[#e0bb73]">VALLEYPOINT CAMPSITE</h4>
+                        <span className="text-[10px] text-ink-500 flex items-center gap-0.5 uppercase tracking-widest font-bold font-display"><MapPin className="w-3 h-3 text-[#8a6520]" /> Tuba, Benguet</span>
                       </div>
                     </div>
                     <div className="text-right">
-                      <span className="text-[9px] uppercase font-bold text-neutral-400 block font-display">Reference Code</span>
-                      <span className="font-display font-bold text-base text-gold-400">{newBookingResult.reference}</span>
+                      <span className="text-[9px] uppercase font-bold text-ink-500 block font-display">Reference Code</span>
+                      <span className="font-display font-bold text-base text-[#e0bb73]">{newBookingResult.reference}</span>
                     </div>
                   </div>
 
                   {/* Status banner */}
-                  <div className="p-6 text-center border-b border-pine-950/10 space-y-2">
+                  <div className="p-6 text-center border-b border-ink/10 space-y-2">
                     <div className="w-12 h-12 rounded-full bg-amber-500/10 text-amber-600 flex items-center justify-center mx-auto mb-2 border border-amber-500/30">
                       <CalendarCheck className="w-6 h-6 stroke-[2.5]" />
                     </div>
-                    <h3 className="font-serif font-bold text-xl text-pine-900">Reservation Held — Awaiting Payment</h3>
-                    <p className="text-xs text-neutral-600 max-w-md mx-auto">
+                    <h3 className="font-serif font-bold text-xl text-ink">Reservation Held — Awaiting Payment</h3>
+                    <p className="text-xs text-ink-700 max-w-md mx-auto">
                       Thanks, <span className="font-bold">{newBookingResult.customerName}</span>. Your dates are held. Send your payment using the details below, then email your proof of payment — your reservation is confirmed once we verify it.
                     </p>
                   </div>
 
                   {/* Receipt: guest + reservation */}
-                  <div className="p-6 border-b border-dashed border-pine-950/20 bg-cream-50 space-y-5 text-left">
+                  <div className="p-6 border-b border-dashed border-ink/20 bg-paper-50 space-y-5 text-left">
                     <div>
-                      <span className="text-[9px] uppercase font-bold tracking-wider text-gold-700 font-display block mb-1.5">Guest Details</span>
+                      <span className="text-[9px] uppercase font-bold tracking-wider text-[#7a5a18] font-display block mb-1.5">Guest Details</span>
                       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
                         <div>
-                          <span className="text-[9px] uppercase font-bold text-neutral-500 block font-display">Name</span>
-                          <span className="font-semibold text-pine-950">{newBookingResult.customerName}</span>
+                          <span className="text-[9px] uppercase font-bold text-ink-500 block font-display">Name</span>
+                          <span className="font-semibold text-ink">{newBookingResult.customerName}</span>
                         </div>
                         <div>
-                          <span className="text-[9px] uppercase font-bold text-neutral-500 block font-display">Email</span>
-                          <span className="font-semibold text-pine-950 break-all">{newBookingResult.customerEmail}</span>
+                          <span className="text-[9px] uppercase font-bold text-ink-500 block font-display">Email</span>
+                          <span className="font-semibold text-ink break-all">{newBookingResult.customerEmail}</span>
                         </div>
                         <div>
-                          <span className="text-[9px] uppercase font-bold text-neutral-500 block font-display">Phone</span>
-                          <span className="font-semibold text-pine-950">{newBookingResult.customerPhone || '—'}</span>
+                          <span className="text-[9px] uppercase font-bold text-ink-500 block font-display">Phone</span>
+                          <span className="font-semibold text-ink">{newBookingResult.customerPhone || '—'}</span>
                         </div>
                       </div>
                     </div>
 
                     <div>
-                      <span className="text-[9px] uppercase font-bold tracking-wider text-gold-700 font-display block mb-1.5">Reservation</span>
+                      <span className="text-[9px] uppercase font-bold tracking-wider text-[#7a5a18] font-display block mb-1.5">Reservation</span>
                       <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs">
                         <div>
-                          <span className="text-[9px] uppercase font-bold text-neutral-500 block font-display">Reference No.</span>
-                          <span className="font-mono font-bold text-pine-950">{newBookingResult.reference}</span>
+                          <span className="text-[9px] uppercase font-bold text-ink-500 block font-display">Reference No.</span>
+                          <span className="font-mono font-bold text-ink">{newBookingResult.reference}</span>
                         </div>
                         <div className="sm:col-span-2">
-                          <span className="text-[9px] uppercase font-bold text-neutral-500 block font-display">Booked Room</span>
-                          <span className="font-semibold text-pine-950">{newBookingResult.accommodationName}</span>
+                          <span className="text-[9px] uppercase font-bold text-ink-500 block font-display">Booked Room</span>
+                          <span className="font-semibold text-ink">{newBookingResult.accommodationName}</span>
                         </div>
                         <div>
-                          <span className="text-[9px] uppercase font-bold text-neutral-500 block font-display">Check-in</span>
-                          <span className="font-semibold text-pine-950">{newBookingResult.checkIn}</span>
+                          <span className="text-[9px] uppercase font-bold text-ink-500 block font-display">Check-in</span>
+                          <span className="font-semibold text-ink">{newBookingResult.checkIn}</span>
                         </div>
                         <div>
-                          <span className="text-[9px] uppercase font-bold text-neutral-500 block font-display">Check-out</span>
-                          <span className="font-semibold text-pine-950">{newBookingResult.checkOut}</span>
+                          <span className="text-[9px] uppercase font-bold text-ink-500 block font-display">Check-out</span>
+                          <span className="font-semibold text-ink">{newBookingResult.checkOut}</span>
                         </div>
                         <div>
-                          <span className="text-[9px] uppercase font-bold text-neutral-500 block font-display">Guests / Nights</span>
-                          <span className="font-semibold text-pine-950">{newBookingResult.guestsCount} pax · {newBookingResult.nights} night/s</span>
+                          <span className="text-[9px] uppercase font-bold text-ink-500 block font-display">Guests / Nights</span>
+                          <span className="font-semibold text-ink">{newBookingResult.guestsCount} pax · {newBookingResult.nights} night/s</span>
                         </div>
                       </div>
                     </div>
                   </div>
 
                   {/* Costs */}
-                  <div className="p-6 space-y-3 border-b border-pine-950/10">
-                    <div className="flex justify-between text-xs text-neutral-600">
+                  <div className="p-6 space-y-3 border-b border-ink/10">
+                    <div className="flex justify-between text-xs text-ink-700">
                       <span>Accommodation ({newBookingResult.nights} night/s)</span>
                       <span>₱{Number(
                         Number(newBookingResult.totalAmount) -
@@ -1151,50 +1158,50 @@ export default function BookingSystem({
                     </div>
                     {Array.isArray(newBookingResult.addOns) && newBookingResult.addOns.length > 0 && (
                       <div className="space-y-1">
-                        <span className="text-[9px] uppercase font-bold text-neutral-500 block font-display">Add-ons</span>
+                        <span className="text-[9px] uppercase font-bold text-ink-500 block font-display">Add-ons</span>
                         {newBookingResult.addOns.map((a: any, i: number) => (
-                          <div key={i} className="flex justify-between text-xs text-neutral-600">
+                          <div key={i} className="flex justify-between text-xs text-ink-700">
                             <span>{a.name} ×{a.quantity}</span>
                             <span>₱{(a.price * a.quantity).toLocaleString()}</span>
                           </div>
                         ))}
                       </div>
                     )}
-                    <div className="flex justify-between items-center pt-2 border-t border-pine-950/10">
-                      <span className="text-sm font-bold text-pine-950">Total Amount</span>
+                    <div className="flex justify-between items-center pt-2 border-t border-ink/10">
+                      <span className="text-sm font-bold text-ink">Total Amount</span>
                       <span className="font-display font-black text-xl text-emerald-800">₱{Number(newBookingResult.amountDue ?? newBookingResult.totalAmount).toLocaleString()}</span>
                     </div>
                     {newBookingResult.notes && (
-                      <div className="p-3 bg-neutral-900/5 rounded-xl border border-neutral-900/10 text-[11px] text-neutral-600 italic">
-                        <span className="font-bold uppercase text-[9px] text-neutral-500 block font-display not-italic">Your request:</span>
+                      <div className="p-3 bg-ink/5 rounded-xl border border-ink/10 text-[11px] text-ink-700 italic">
+                        <span className="font-bold uppercase text-[9px] text-ink-500 block font-display not-italic">Your request:</span>
                         "{newBookingResult.notes}"
                       </div>
                     )}
                   </div>
 
                   {/* Email confirmation note */}
-                  <div className="px-6 py-4 bg-emerald-500/5 border-b border-pine-950/10 flex items-start gap-2.5 text-[11px] text-emerald-900 leading-relaxed">
+                  <div className="px-6 py-4 bg-emerald-500/5 border-b border-ink/10 flex items-start gap-2.5 text-[11px] text-emerald-900 leading-relaxed">
                     <Info className="w-4 h-4 shrink-0 text-emerald-600 mt-px" />
                     <span>A confirmation will be sent to <span className="font-semibold break-all">{newBookingResult.customerEmail}</span>. If you don't see it shortly, please check your spam / junk folder.</span>
                   </div>
 
                   {/* Payment instructions */}
                   {newBookingResult.paymentInstructions && (
-                    <div className="p-6 space-y-4 bg-cream-50">
-                      <h4 className="font-serif font-bold text-base text-pine-900">{newBookingResult.paymentInstructions.headline}</h4>
+                    <div className="p-6 space-y-4 bg-paper-50">
+                      <h4 className="font-serif font-bold text-base text-ink">{newBookingResult.paymentInstructions.headline}</h4>
 
                       <div className="space-y-3">
                         {(newBookingResult.paymentInstructions.accounts || [])
                           .filter((acc: any) => acc.accountName || acc.accountNumber || acc.qrImageUrl)
                           .map((acc: any, i: number) => (
-                          <div key={i} className="flex items-center gap-4 p-3 rounded-xl border border-pine-950/10 bg-white">
+                          <div key={i} className="flex items-center gap-4 p-3 rounded-xl border border-ink/10 bg-white">
                             {acc.qrImageUrl ? (
-                              <img src={acc.qrImageUrl} alt={`${acc.method} QR`} className="w-20 h-20 rounded-lg object-contain shrink-0 border border-neutral-200" />
+                              <img src={acc.qrImageUrl} alt={`${acc.method} QR`} className="w-20 h-20 rounded-lg object-contain shrink-0 border border-ink/10" />
                             ) : null}
                             <div className="min-w-0">
-                              <span className="font-display font-bold text-xs uppercase tracking-wide text-gold-700 block">{acc.method}</span>
-                              <span className="text-sm font-semibold text-pine-950 block">{acc.accountName}</span>
-                              <span className="text-sm font-mono text-pine-800 block break-all">{acc.accountNumber}</span>
+                              <span className="font-display font-bold text-xs uppercase tracking-wide text-[#7a5a18] block">{acc.method}</span>
+                              <span className="text-sm font-semibold text-ink block">{acc.accountName}</span>
+                              <span className="text-sm font-mono text-ink-700 block break-all">{acc.accountNumber}</span>
                             </div>
                           </div>
                         ))}
@@ -1204,22 +1211,22 @@ export default function BookingSystem({
                         {newBookingResult.paymentInstructions.note}
                       </div>
 
-                      <div className="text-xs text-pine-900">
+                      <div className="text-xs text-ink">
                         <span className="font-bold">Send your proof of payment to: </span>
                         <a href={`mailto:${newBookingResult.paymentInstructions.proofEmail}?subject=Proof of payment ${newBookingResult.reference}`} className="font-mono text-emerald-800 underline break-all">
                           {newBookingResult.paymentInstructions.proofEmail}
                         </a>
-                        <span className="block text-neutral-500 mt-0.5">Include your reference code <span className="font-mono font-bold">{newBookingResult.reference}</span>.</span>
+                        <span className="block text-ink-500 mt-0.5">Include your reference code <span className="font-mono font-bold">{newBookingResult.reference}</span>.</span>
                       </div>
                     </div>
                   )}
 
-                  <div className="bg-neutral-900/5 px-6 py-4 flex items-center justify-between border-t border-pine-950/10">
-                    <span className="text-[8px] font-mono text-neutral-500 tracking-widest uppercase">VP-RESERVATION-HELD</span>
+                  <div className="bg-ink/5 px-6 py-4 flex items-center justify-between border-t border-ink/10">
+                    <span className="text-[8px] font-mono text-ink-500 tracking-widest uppercase">VP-RESERVATION-HELD</span>
                     <button
                       type="button"
                       onClick={() => window.print()}
-                      className="py-2 px-3.5 rounded-xl bg-pine-950 text-cream-50 hover:bg-pine-900 font-display font-semibold text-xs transition-colors flex items-center gap-1.5 cursor-pointer"
+                      className="py-2 px-3.5 rounded-xl bg-ink text-paper-50 hover:bg-ink font-display font-semibold text-xs transition-colors flex items-center gap-1.5 cursor-pointer"
                     >
                       <Printer className="w-3.5 h-3.5" /> Print / Save Ticket
                     </button>
@@ -1240,7 +1247,7 @@ export default function BookingSystem({
                       setNewBookingResult(null);
                       setBookingStep(1);
                     }}
-                    className="py-3 px-6 rounded-2xl bg-pine-800 text-cream-50 hover:bg-pine-700 transition-colors text-xs font-display font-semibold cursor-pointer"
+                    className="py-3 px-6 rounded-2xl bg-ink-700 text-paper-50 hover:bg-ink-700 transition-colors text-xs font-display font-semibold cursor-pointer"
                   >
                     Book Another Stay
                   </button>
@@ -1275,7 +1282,7 @@ export default function BookingSystem({
               />
               <button
                 type="submit"
-                className="py-3 px-6 rounded-xl bg-gold-500 hover:bg-gold-400 text-pine-950 font-display font-bold text-xs transition-colors"
+                className="py-3 px-6 rounded-xl bg-gold-500 hover:bg-gold-400 text-ink font-display font-bold text-xs transition-colors"
                 id="search_booking_button"
               >
                 Search Record

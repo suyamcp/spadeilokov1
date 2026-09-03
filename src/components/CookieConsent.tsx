@@ -154,7 +154,7 @@ export default function CookieConsent() {
                   <div className="flex flex-wrap gap-2.5 pt-1">
                     <button
                       onClick={acceptAll}
-                      className="py-2.5 px-5 rounded-xl bg-gold-500 hover:bg-gold-400 text-pine-950 font-display font-bold text-xs transition-colors cursor-pointer"
+                      className="py-2.5 px-5 rounded-xl bg-gold-500 hover:bg-gold-400 text-ink font-display font-bold text-xs transition-colors cursor-pointer"
                     >
                       Accept all cookies
                     </button>
@@ -242,7 +242,7 @@ export default function CookieConsent() {
                 </button>
                 <button
                   onClick={saveSettings}
-                  className="py-2.5 px-5 rounded-xl bg-gold-500 hover:bg-gold-400 text-pine-950 font-display font-bold text-xs transition-colors"
+                  className="py-2.5 px-5 rounded-xl bg-gold-500 hover:bg-gold-400 text-ink font-display font-bold text-xs transition-colors"
                 >
                   Save choices
                 </button>

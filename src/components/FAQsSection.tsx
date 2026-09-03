@@ -83,7 +83,7 @@ function FaqAssistant() {
             <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
               <div className={`max-w-[85%] rounded-2xl px-3.5 py-2.5 text-xs leading-relaxed whitespace-pre-wrap ${
                 m.role === 'user'
-                  ? 'bg-gold-500 text-pine-950 font-medium rounded-br-sm'
+                  ? 'bg-gold-500 text-ink font-medium rounded-br-sm'
                   : 'bg-pine-900 border border-pine-800 text-neutral-200 rounded-bl-sm'
               }`}>
                 {m.text}
@@ -115,7 +115,7 @@ function FaqAssistant() {
           <button
             type="submit"
             disabled={loading || !input.trim()}
-            className="py-2.5 px-4 rounded-xl bg-gold-500 hover:bg-gold-400 disabled:opacity-40 text-pine-950 font-display font-bold text-xs transition-all flex items-center gap-1.5 shrink-0"
+            className="py-2.5 px-4 rounded-xl bg-gold-500 hover:bg-gold-400 disabled:opacity-40 text-ink font-display font-bold text-xs transition-all flex items-center gap-1.5 shrink-0"
           >
             <Send className="w-3.5 h-3.5" />
           </button>
@@ -186,11 +186,11 @@ export default function FAQsSection({ faqs }: FAQsSectionProps) {
                     onClick={() => { setActiveCategory(cat.id); setOpenId(null); }}
                     className={`py-3 px-4 rounded-xl font-display font-medium text-xs transition-all flex items-center gap-2.5 shrink-0 text-left w-auto lg:w-full ${
                       isActive
-                        ? 'bg-gold-500 text-pine-950 font-bold shadow-lg shadow-gold-500/10'
+                        ? 'bg-gold-500 text-ink font-bold shadow-lg shadow-gold-500/10'
                         : 'bg-pine-950/40 border border-pine-850/60 hover:border-pine-700 text-neutral-300'
                     }`}
                   >
-                    <span className={isActive ? 'text-pine-950' : 'text-gold-500'}>
+                    <span className={isActive ? 'text-ink' : 'text-gold-500'}>
                       {cat.icon}
                     </span>
                     <span>{cat.name}</span>

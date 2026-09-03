@@ -14,6 +14,7 @@ export interface Accommodation {
 
 export interface Booking {
   id: string;
+  reference?: string; // VP-XXXXXX code the guest quotes
   customerName: string;
   customerEmail: string;
   customerPhone: string;

@@ -85,7 +85,7 @@ export default function AboutSection({ data }: AboutSectionProps) {
           <div className="lg:col-span-5 space-y-6" id="about_visuals_panel">
             {/* Ambient coordinates plaque */}
             <div className="bg-pine-950 rounded-2xl p-6 border border-pine-850 text-left relative overflow-hidden group">
-              <div className="absolute right-4 top-4 text-pine-900/40 font-mono font-black text-6xl select-none group-hover:scale-110 transition-transform">
+              <div className="absolute right-4 top-4 text-cream-50/10 font-mono font-black text-6xl select-none group-hover:scale-110 transition-transform">
                 {latitude ? latitude.split(' ')[0] : '16.38°N'}
               </div>
               
@@ -116,7 +116,7 @@ export default function AboutSection({ data }: AboutSectionProps) {
                   "{data.quoteText}"
                 </p>
                 <div className="flex items-center gap-3 relative z-10" id="quote_author">
-                  <div className="w-8 h-8 rounded-full bg-gold-500 flex items-center justify-center font-display font-bold text-xs text-pine-950">
+                  <div className="w-8 h-8 rounded-full bg-gold-500 flex items-center justify-center font-display font-bold text-xs text-ink">
                     {data.quoteAuthor ? data.quoteAuthor.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase() : 'VP'}
                   </div>
                   <div>
