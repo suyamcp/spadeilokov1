@@ -4,7 +4,8 @@ import path from "path";
 import fs from "fs";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
-import { createServer as createViteServer } from "vite";
+// vite is imported lazily in dev mode only (see startServer) so the production
+// bundle never needs it installed.
 import { eq, and, or, lt, gt, sql } from 'drizzle-orm';
 import { db } from './src/db/index.ts';
 import {
@@ -12,9 +13,21 @@ import {
   adminSessions, siteContent, addOns, bookingAddOns, roomTypes,
   visitors, visitEvents
 } from './src/db/schema.ts';
-import { initializeApp as initAdmin, getApps as getAdminApps } from 'firebase-admin/app';
-import { getStorage as getAdminStorage } from 'firebase-admin/storage';
 import nodemailer from 'nodemailer';
+
+// Running mode. The production bundle (dist/server.cjs) is compiled with
+// NODE_ENV baked to "production"; as a fallback we also treat "being run from
+// the dist/ folder" as production, so `node dist/server.cjs` is safe even if
+// the host forgets to set NODE_ENV. `tsx server.ts` stays in dev mode.
+const IS_PRODUCTION =
+  process.env.NODE_ENV === 'production' ||
+  (typeof __dirname !== 'undefined' && path.basename(__dirname) === 'dist');
+
+// Make Express (and any dependency that reads NODE_ENV) agree with the mode we
+// detected, so `npm start` is correct even when the host never set the var.
+if (IS_PRODUCTION && process.env.NODE_ENV !== 'production') {
+  process.env.NODE_ENV = 'production';
+}
 
 async function getRoomTypeBySlug(slug: string) {
   const [rt] = await db.select().from(roomTypes).where(eq(roomTypes.slug, slug)).limit(1);
@@ -240,6 +253,59 @@ async function getRoomTypeById(id: number) {
   return rt;
 }
 
+// ---------------------------------------------------------------------------
+// LOGIN THROTTLE
+// The admin panel is the only door to guest data and site content, and it sits
+// on a public URL. bcrypt slows each guess but does not cap the rate, so we add
+// a small in-memory lockout: 8 failed attempts from one IP within 15 minutes
+// blocks that IP for 15 minutes. Resets on a successful login. In-memory is
+// fine for a single-instance deployment; a multi-instance setup would move this
+// to the database.
+/** How long an admin login stays valid. */
+const ADMIN_SESSION_MS = 8 * 60 * 60 * 1000;
+
+const LOGIN_MAX_FAILS = 8;
+const LOGIN_WINDOW_MS = 15 * 60 * 1000;
+const loginAttempts = new Map<string, { fails: number; first: number; blockedUntil: number }>();
+
+function loginClientIp(req: express.Request): string {
+  const fwd = (req.headers['x-forwarded-for'] as string | undefined)?.split(',')[0]?.trim();
+  return fwd || req.socket.remoteAddress || 'unknown';
+}
+
+/** @returns seconds remaining if currently locked out, otherwise 0 */
+function loginLockRemaining(ip: string): number {
+  const rec = loginAttempts.get(ip);
+  if (!rec) return 0;
+  if (rec.blockedUntil && rec.blockedUntil > Date.now()) {
+    return Math.ceil((rec.blockedUntil - Date.now()) / 1000);
+  }
+  return 0;
+}
+
+function recordLoginFailure(ip: string) {
+  const now = Date.now();
+  const rec = loginAttempts.get(ip);
+  if (!rec || now - rec.first > LOGIN_WINDOW_MS) {
+    loginAttempts.set(ip, { fails: 1, first: now, blockedUntil: 0 });
+    return;
+  }
+  rec.fails += 1;
+  if (rec.fails >= LOGIN_MAX_FAILS) rec.blockedUntil = now + LOGIN_WINDOW_MS;
+}
+
+function clearLoginFailures(ip: string) {
+  loginAttempts.delete(ip);
+}
+
+// Keep the throttle map from growing unbounded.
+setInterval(() => {
+  const now = Date.now();
+  for (const [ip, rec] of loginAttempts) {
+    if (rec.blockedUntil < now && now - rec.first > LOGIN_WINDOW_MS) loginAttempts.delete(ip);
+  }
+}, 30 * 60 * 1000).unref?.();
+
 async function requireAdmin(req: express.Request, res: express.Response, next: express.NextFunction) {
   const authHeader = req.headers.authorization || '';
   const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
@@ -259,47 +325,46 @@ async function requireAdmin(req: express.Request, res: express.Response, next: e
 
 async function startServer() {
   const app = express();
-  const PORT = 3000;
+  const PORT = Number(process.env.PORT) || 3000;
 
-  // Support large base64 image payloads for file uploads
-  app.use(express.json({ limit: '50mb' }));
-  app.use(express.urlencoded({ limit: '50mb', extended: true }));
+  // Sit behind the host's load balancer / TLS terminator, so req.protocol and
+  // the client IP are read from X-Forwarded-* headers.
+  app.set('trust proxy', 1);
+  app.disable('x-powered-by'); // don't advertise the stack
 
-  // Load firebase configuration safely
-  let firebaseConfig: any = null;
-  try {
-    const configPath = path.join(process.cwd(), 'firebase-applet-config.json');
-    if (fs.existsSync(configPath)) {
-      firebaseConfig = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+  // Security headers. No external dependency — these are the few that matter for
+  // a server-rendered SPA with a JSON API and no third-party embeds.
+  app.use((req, res, next) => {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Frame-Options', 'DENY');
+    res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+    res.setHeader('X-DNS-Prefetch-Control', 'off');
+    res.setHeader('Permissions-Policy', 'geolocation=(), microphone=(), camera=(), payment=()');
+    if (IS_PRODUCTION) {
+      res.setHeader('Strict-Transport-Security', 'max-age=15552000; includeSubDomains');
     }
-  } catch (err) {
-    console.error('Failed to read firebase config file in server.ts:', err);
-  }
+    next();
+  });
 
-  // Initialize Firebase Admin if available
-  if (firebaseConfig && firebaseConfig.projectId && getAdminApps().length === 0) {
+  // Body limits: the admin image upload route needs room for a base64 photo, so
+  // it gets its own large limit mounted only on that path. Everything else —
+  // bookings, analytics, the chatbot — is capped tight to remove a trivial
+  // memory-exhaustion vector.
+  const UPLOAD_JSON_LIMIT = '12mb';
+  app.use('/api/upload', express.json({ limit: UPLOAD_JSON_LIMIT }));
+  app.use(express.json({ limit: '200kb' }));
+  app.use(express.urlencoded({ limit: '200kb', extended: true }));
+
+  // Liveness/readiness probe for the hosting platform. Confirms the process is
+  // up and the database answers; never touches guest data.
+  app.get(['/healthz', '/api/health'], async (_req, res) => {
     try {
-      initAdmin({
-        projectId: firebaseConfig.projectId,
-      });
-      console.log('Firebase Admin initialized for cloud storage operations.');
-    } catch (err) {
-      console.error('Failed to initialize Firebase Admin:', err);
+      await db.execute(sql`SELECT 1`);
+      res.json({ ok: true, ts: new Date().toISOString() });
+    } catch {
+      res.status(503).json({ ok: false });
     }
-  }
-
-  // Static serving for locally uploaded fallback assets
-  const uploadDirDist = path.join(process.cwd(), 'dist', 'uploads');
-  const uploadDirPublic = path.join(process.cwd(), 'public', 'uploads');
-  try {
-    if (!fs.existsSync(uploadDirDist)) fs.mkdirSync(uploadDirDist, { recursive: true });
-    if (!fs.existsSync(uploadDirPublic)) fs.mkdirSync(uploadDirPublic, { recursive: true });
-  } catch (err) {
-    console.error('Failed to create local upload directory fallbacks:', err);
-  }
-
-  app.use('/uploads', express.static(uploadDirDist));
-  app.use('/uploads', express.static(uploadDirPublic));
+  });
 
   // --- DATABASE SELF-HEALING SEEDING FOR ROOMS, ROOM TYPES, AND DEFAULT ADMIN ---
   async function seedRoomTypesAndRooms() {
@@ -461,9 +526,20 @@ async function startServer() {
     }
   }
 
+  // Expired admin sessions are dead weight and a lingering credential surface;
+  // clear them out on the same cadence as the other housekeeping.
+  async function purgeExpiredSessions() {
+    try {
+      await db.delete(adminSessions).where(lt(adminSessions.expiresAt, new Date()));
+    } catch (err) {
+      console.error('Failed to purge expired admin sessions:', err);
+    }
+  }
+
   async function runMaintenance() {
     await releaseExpiredHolds();
     await anonymiseOldCancellations();
+    await purgeExpiredSessions();
   }
   await runMaintenance();
   setInterval(runMaintenance, 15 * 60 * 1000); // every 15 minutes
@@ -1091,83 +1167,60 @@ async function startServer() {
     }
   });
 
-  // Upload base64 image (utilizes Firebase/Google Cloud Storage with robust local disk fallback) (Admin Only)
+  // Upload an image for the gallery / CMS (Admin Only).
+  //
+  // The image is stored as a data URI in the database rather than on disk or in
+  // a third-party bucket. Container filesystems are ephemeral (every redeploy
+  // would wipe uploaded photos), and this site only carries a handful of
+  // admin-managed images, so a few hundred KB per row in Postgres is the
+  // simplest thing that survives a restart with no extra service or credential.
+  // If the gallery ever grows large, move this to Supabase Storage.
+  const ALLOWED_UPLOAD_MIME = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/avif']);
+  const MAX_UPLOAD_BYTES = 8 * 1024 * 1024; // 8 MB decoded
+
   app.post('/api/upload', requireAdmin, async (req, res) => {
-    const { name, mimeType, base64 } = req.body;
-    if (!name || !base64) {
+    const { name, mimeType, base64 } = req.body || {};
+    if (!name || !base64 || typeof base64 !== 'string') {
       return res.status(400).json({ error: 'Missing name or base64 file data.' });
     }
 
     try {
-      // Extract clean base64 string
       let cleanBase64 = base64;
-      let detectedMime = mimeType || 'image/jpeg';
+      let detectedMime = (mimeType || 'image/jpeg').toLowerCase();
       if (base64.includes(';base64,')) {
-        const parts = base64.split(';base64,');
-        const mimePart = parts[0];
-        cleanBase64 = parts[1];
-        if (mimePart.startsWith('data:')) {
-          detectedMime = mimePart.substring(5);
-        }
+        const [mimePart, data] = base64.split(';base64,');
+        cleanBase64 = data;
+        if (mimePart.startsWith('data:')) detectedMime = mimePart.substring(5).toLowerCase();
+      }
+
+      if (!ALLOWED_UPLOAD_MIME.has(detectedMime)) {
+        return res.status(415).json({ error: 'Unsupported image type. Use JPEG, PNG, WebP, GIF or AVIF.' });
       }
 
       const buffer = Buffer.from(cleanBase64, 'base64');
-      let publicUrl = '';
-
-      try {
-        if (firebaseConfig && firebaseConfig.storageBucket) {
-          const bucket = getAdminStorage().bucket(firebaseConfig.storageBucket);
-          const cleanedName = name.replace(/[^a-zA-Z0-9.-]/g, '_');
-          const fileName = `uploads/${Date.now()}_${cleanedName}`;
-          const file = bucket.file(fileName);
-
-          await file.save(buffer, {
-            metadata: { contentType: detectedMime },
-            public: true,
-          });
-
-          // Attempt makePublic (might fail if Uniform Bucket Access is configured)
-          try {
-            await file.makePublic();
-          } catch (e) {
-            console.warn('makePublic failed, continuing (might use uniform bucket-level access):', e);
-          }
-
-          publicUrl = `https://storage.googleapis.com/${bucket.name}/${file.name}`;
-          console.log('Successfully uploaded image to cloud storage bucket:', publicUrl);
-        } else {
-          throw new Error('Firebase storageBucket configuration is not present.');
-        }
-      } catch (cloudError: any) {
-        console.warn('Cloud Storage upload failed, executing local fallback saving:', cloudError);
-
-        const uploadDirDist = path.join(process.cwd(), 'dist', 'uploads');
-        const uploadDirPublic = path.join(process.cwd(), 'public', 'uploads');
-
-        const cleanedName = name.replace(/[^a-zA-Z0-9.-]/g, '_');
-        const fileName = `${Date.now()}_${cleanedName}`;
-
-        fs.writeFileSync(path.join(uploadDirDist, fileName), buffer);
-        fs.writeFileSync(path.join(uploadDirPublic, fileName), buffer);
-
-        publicUrl = `/uploads/${fileName}`;
+      if (buffer.length === 0) {
+        return res.status(400).json({ error: 'The uploaded file is empty or not valid base64.' });
+      }
+      if (buffer.length > MAX_UPLOAD_BYTES) {
+        return res.status(413).json({
+          error: `Image is ${(buffer.length / 1048576).toFixed(1)} MB. Please upload a web-optimised image under 8 MB.`,
+        });
       }
 
-      // Record successfully uploaded file in database settings
+      const dataUri = `data:${detectedMime};base64,${buffer.toString('base64')}`;
+
       const record = await db.select().from(adminSettings).where(eq(adminSettings.key, 'custom_gallery_images')).limit(1);
       const existingImages = record[0]?.value ? JSON.parse(record[0].value) : [];
-
-      const newImg = { url: publicUrl, name: name };
-      existingImages.push(newImg);
+      existingImages.push({ url: dataUri, name: String(name).slice(0, 120) });
 
       await db.insert(adminSettings)
         .values({ key: 'custom_gallery_images', value: JSON.stringify(existingImages) })
         .onConflictDoUpdate({
           target: adminSettings.key,
-          set: { value: JSON.stringify(existingImages) }
+          set: { value: JSON.stringify(existingImages) },
         });
 
-      res.json({ success: true, url: publicUrl, name: name });
+      res.json({ success: true, url: dataUri, name });
     } catch (error: any) {
       console.error('Image upload controller failed:', error);
       res.status(500).json({ error: error.message || 'An error occurred during file upload.' });
@@ -1199,7 +1252,22 @@ async function startServer() {
         return res.status(400).json({ error: 'Invalid accommodation selection.' });
       }
       const roomTypeId = rtObj.id;
-      const reference = 'VP-' + Math.random().toString(36).substring(2, 8).toUpperCase();
+      // Always exactly 6 chars from an unambiguous alphabet (no 0/O/1/I/L).
+      // `bookings.reference` is UNIQUE; retry a few times before giving up so a
+      // rare collision never surfaces as a 500 to the guest.
+      const makeReference = () => {
+        const alphabet = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+        let code = '';
+        for (let i = 0; i < 6; i++) code += alphabet[crypto.randomInt(alphabet.length)];
+        return 'VP-' + code;
+      };
+      let reference = makeReference();
+      for (let attempt = 0; attempt < 5; attempt++) {
+        const clash = await db.select({ id: bookings.id }).from(bookings)
+          .where(eq(bookings.reference, reference)).limit(1);
+        if (clash.length === 0) break;
+        reference = makeReference();
+      }
 
       // Begin Transaction for atomic reservation & row-lock protection
       const result = await db.transaction(async (tx) => {
@@ -1528,6 +1596,15 @@ async function startServer() {
 
   // Admin Verification Login Endpoint (Secure with hashed passwords and sessions)
   app.post('/api/admin/login', async (req, res) => {
+    const ip = loginClientIp(req);
+    const lockedFor = loginLockRemaining(ip);
+    if (lockedFor > 0) {
+      res.setHeader('Retry-After', String(lockedFor));
+      return res.status(429).json({
+        error: `Too many failed attempts. Try again in ${Math.ceil(lockedFor / 60)} minute(s).`,
+      });
+    }
+
     const { username, password } = req.body;
     if (!username || !password) {
       return res.status(400).json({ error: 'Username and password are required.' });
@@ -1545,10 +1622,14 @@ async function startServer() {
       }
 
       if (username === dbUser && await bcrypt.compare(password, dbHash)) {
+        clearLoginFailures(ip);
         const token = crypto.randomBytes(32).toString('hex');
-        await db.insert(adminSessions).values({ token, expiresAt: new Date(Date.now() + 2 * 60 * 60 * 1000) });
+        // 8 hours covers a full working day without a mid-task logout. Expired
+        // rows are swept by runMaintenance(); a password change kills all sessions.
+        await db.insert(adminSessions).values({ token, expiresAt: new Date(Date.now() + ADMIN_SESSION_MS) });
         return res.json({ success: true, token });
       } else {
+        recordLoginFailure(ip);
         return res.status(401).json({ error: 'Invalid username or password.' });
       }
     } catch (error) {
@@ -1586,24 +1667,32 @@ async function startServer() {
   // ==========================================
   // VITE DEVELOPMENT MIDDLEWARE OR STATIC PROD
   // ==========================================
-  if (process.env.NODE_ENV !== "production") {
+  if (!IS_PRODUCTION) {
+    const { createServer: createViteServer } = await import("vite");
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",
     });
     app.use(vite.middlewares);
   } else {
-    const distPath = path.join(process.cwd(), 'dist');
-    app.use(express.static(distPath));
-    app.get('*', (req, res) => {
-      res.sendFile(path.join(distPath, 'index.html'));
-    });
+    // In the compiled bundle __dirname is the dist/ folder; the built client
+    // assets sit right beside server.cjs.
+    const distPath = typeof __dirname !== 'undefined' && path.basename(__dirname) === 'dist'
+      ? __dirname
+      : path.join(process.cwd(), 'dist');
+    const indexHtml = path.join(distPath, 'index.html');
+    if (!fs.existsSync(indexHtml)) {
+      console.error(`\n  ✗ Production build not found at ${indexHtml}\n    Run "npm run build" before "npm start".\n`);
+      process.exit(1);
+    }
+    app.use(express.static(distPath, { maxAge: '1h', index: false }));
+    app.get('*', (_req, res) => res.sendFile(indexHtml));
   }
 
   app.listen(PORT, "0.0.0.0", () => {
     // Bind on 0.0.0.0 (all interfaces) but print localhost — 0.0.0.0 is not a browsable address.
     console.log(`
-  ✓ Valleypoint site ready:  http://localhost:${PORT}
+  ✓ Valleypoint site ready  (${IS_PRODUCTION ? 'production' : 'development'})  ->  http://localhost:${PORT}
 `);
   });
 }
