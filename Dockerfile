@@ -1,4 +1,4 @@
-# Valleypoint Campsite — production image.
+# Spa de Iloko — production image.
 # Works as-is on Render, Railway, Fly.io, Google Cloud Run, or plain Docker.
 
 # ---- build stage: install everything, compile client + server ----

@@ -171,7 +171,7 @@ const DEFAULT_PAYMENT_INSTRUCTIONS = {
     { method: 'Maya', accountName: 'Spa de Iloko', accountNumber: '0917-XXX-XXXX', qrImageUrl: '' },
     { method: 'Bank Transfer (BDO)', accountName: 'Spa de Iloko Inc.', accountNumber: '0000-0000-0000', qrImageUrl: '' },
   ],
-  proofEmail: 'payments@valleypoint.example',
+  proofEmail: 'payments@spadeiloko.example',
   note: 'Pay the full amount shown on your ticket using any option above, then email a clear screenshot or photo of your payment receipt (with your reference code) to the address above. Your appointment is confirmed once we verify your payment, usually within 24 hours. Unverified reservations may be released after 48 hours.',
 };
 
@@ -229,16 +229,21 @@ function buildGuestEmail(ticket: any, instr: typeof DEFAULT_PAYMENT_INSTRUCTIONS
     ? '\nAdd-ons:\n' + ticket.addOns.map((a: any) => `  • ${a.name} x${a.quantity} — ${peso(a.price * a.quantity)}`).join('\n')
     : '';
 
+  const branchLines = [
+    ticket.branchName ? `  Branch:         ${ticket.branchName}` : '',
+    ticket.branchAddress ? `  Address:        ${ticket.branchAddress}` : '',
+    ticket.branchPhone ? `  Branch phone:   ${ticket.branchPhone}` : '',
+  ].filter(Boolean).join('\n');
+
   const text = `Hi ${ticket.customerName},
 
-Thank you for reserving with Valleypoint Campsite. Your reservation is HELD but NOT YET CONFIRMED — it is confirmed once we verify your payment.
+Thank you for booking with Spa de Iloko. Your appointment is HELD but NOT YET CONFIRMED — it is confirmed once we verify your payment.
 
-RESERVATION
+APPOINTMENT
   Reference:      ${ticket.reference}
-  Accommodation:  ${ticket.accommodationName}
-  Check-in:       ${ticket.checkIn}
-  Check-out:      ${ticket.checkOut}
-  Nights:         ${ticket.nights}
+${branchLines}
+  Package:        ${ticket.accommodationName}
+  Date:           ${ticket.checkIn}
   Guests:         ${ticket.guestsCount}${addOnLines}
   AMOUNT DUE:     ${peso(ticket.amountDue)}
 
@@ -251,9 +256,11 @@ ${instr.note}
 Send your proof of payment to: ${instr.proofEmail}
 Include your reference code ${ticket.reference} in the email.
 
-— Valleypoint Campsite, Tuba, Benguet`;
+Please arrive about ten minutes before your appointment.
 
-  return { subject: `Valleypoint reservation ${ticket.reference} — payment instructions`, text };
+— Spa de Iloko`;
+
+  return { subject: `Spa de Iloko appointment ${ticket.reference} — payment instructions`, text };
 }
 
 async function sendConfirmationEmail(bookingId: number) {
@@ -268,6 +275,7 @@ async function sendConfirmationEmail(bookingId: number) {
     lastName: guests.lastName,
     email: guests.email,
     roomTypeName: roomTypes.name,
+    branch: rooms.branch,
     checkInDate: bookingRooms.checkInDate,
     checkOutDate: bookingRooms.checkOutDate,
     totalCost: bookingRooms.totalCost,
@@ -281,22 +289,22 @@ async function sendConfirmationEmail(bookingId: number) {
     .limit(1);
   if (!row) return;
 
-  const from = process.env.SMTP_FROM || process.env.SMTP_USER || 'no-reply@valleypoint.example';
+  const from = process.env.SMTP_FROM || process.env.SMTP_USER || 'no-reply@spadeiloko.example';
   const name = `${row.firstName} ${row.lastName}`.trim();
+  const branch = (await getBranches()).find(b => b.id === row.branch);
   const text = `Hi ${name},
 
-Good news — your payment has been verified and your Valleypoint Campsite reservation is CONFIRMED.
+Good news — your payment has been verified and your Spa de Iloko appointment is CONFIRMED.
 
   Reference:      ${row.reference}
-  Accommodation:  ${row.roomTypeName}
-  Check-in:       ${row.checkInDate}
-  Check-out:      ${row.checkOutDate}
+${branch ? `  Branch:         ${branch.name}\n  Address:        ${branch.address}\n` : ''}  Package:        ${row.roomTypeName}
+  Date:           ${row.checkInDate}
 
-Please bring this reference code with you at check-in. See you in the mountains!
+Please bring this reference code with you, and arrive about ten minutes early. See you soon!
 
-— Valleypoint Campsite, Tuba, Benguet`;
+— Spa de Iloko`;
 
-  await mailer.sendMail({ from, to: row.email, subject: `Your Valleypoint reservation ${row.reference} is confirmed`, text });
+  await mailer.sendMail({ from, to: row.email, subject: `Your Spa de Iloko appointment ${row.reference} is confirmed`, text });
 }
 
 async function sendReservationEmails(ticket: any, instr: typeof DEFAULT_PAYMENT_INSTRUCTIONS) {
@@ -305,7 +313,7 @@ async function sendReservationEmails(ticket: any, instr: typeof DEFAULT_PAYMENT_
     console.log(`[email skipped — SMTP not configured] would send payment instructions for ${ticket.reference} to ${ticket.customerEmail}`);
     return;
   }
-  const from = process.env.SMTP_FROM || process.env.SMTP_USER || 'no-reply@valleypoint.example';
+  const from = process.env.SMTP_FROM || process.env.SMTP_USER || 'no-reply@spadeiloko.example';
   const guest = buildGuestEmail(ticket, instr);
 
   await mailer.sendMail({ from, to: ticket.customerEmail, subject: guest.subject, text: guest.text });
@@ -315,8 +323,8 @@ async function sendReservationEmails(ticket: any, instr: typeof DEFAULT_PAYMENT_
     await mailer.sendMail({
       from,
       to: instr.proofEmail,
-      subject: `New pending reservation ${ticket.reference} — awaiting payment`,
-      text: `New reservation held, awaiting payment verification.\n\nReference: ${ticket.reference}\nGuest: ${ticket.customerName} (${ticket.customerEmail}, ${ticket.customerPhone})\nAccommodation: ${ticket.accommodationName}\nDates: ${ticket.checkIn} to ${ticket.checkOut} (${ticket.nights} night/s)\nGuests: ${ticket.guestsCount}\nAmount due: ${peso(ticket.amountDue)}\n\nConfirm it in the admin panel once the proof of payment arrives.`,
+      subject: `New pending appointment ${ticket.reference} — awaiting payment`,
+      text: `New appointment held, awaiting payment verification.\n\nReference: ${ticket.reference}\nBranch: ${ticket.branchName || '—'}\nClient: ${ticket.customerName} (${ticket.customerEmail}, ${ticket.customerPhone})\nPackage: ${ticket.accommodationName}\nDate: ${ticket.checkIn}\nGuests: ${ticket.guestsCount}\nAmount due: ${peso(ticket.amountDue)}\n\nConfirm it in the admin panel once the proof of payment arrives.`,
     });
   }
 }
@@ -551,6 +559,8 @@ async function startServer() {
       const marker = rows.find(r => r.key === 'content_version');
       if (marker?.value === CONTENT_VERSION) return;
 
+      // Matches the OLD stored content so we know to replace it. The campsite
+      // words here are data we are looking for, not branding we display.
       const legacy = /luxury-cabin|deluxe-glamping|standard-pitching|Valleypoint|campsite|glamping/i;
       const hasLegacyCopy = rows.some(
         r => ['hero', 'about', 'accommodations', 'services', 'faqs'].includes(r.key) && legacy.test(r.value)
