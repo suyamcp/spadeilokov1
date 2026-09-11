@@ -4,8 +4,8 @@ import { Cookie, X } from 'lucide-react';
 
 type Consent = 'accepted' | 'declined';
 
-const CONSENT_KEY = 'vp_cookie_consent';
-const VISITOR_COOKIE = 'vp_visitor_id';
+const CONSENT_KEY = 'sdi_cookie_consent';
+const VISITOR_COOKIE = 'sdi_visitor_id';
 const ID_RE = /^[A-Za-z0-9_-]{8,64}$/;
 
 const readCookie = (name: string): string | null => {
@@ -121,7 +121,7 @@ export default function CookieConsent() {
   const description = (
     <>
       By clicking <span className="font-semibold text-cream-100">"Accept all cookies"</span>, you agree to let
-      Valleypoint Campsite store cookies on your device. We use a single anonymous cookie that holds a random ID
+      Spa de Iloko store cookies on your device. We use a single anonymous cookie that holds a random ID
       (for example, <span className="font-mono text-gold-300">id_847294</span>) so we can count how many different
       people visit our website. It contains <span className="font-semibold">no personal information</span> — not your
       name, email, or location — it is never shared, and it is not used for advertising. You can decline, or change
@@ -143,7 +143,7 @@ export default function CookieConsent() {
             role="dialog"
             aria-label="Cookie consent"
           >
-            <div className="max-w-4xl mx-auto bg-pine-900 border border-pine-700 rounded-2xl shadow-2xl p-5 sm:p-6">
+            <div className="max-w-4xl mx-auto bg-sand-900 border border-sand-700 rounded-2xl shadow-2xl p-5 sm:p-6">
               <div className="flex items-start gap-3">
                 <div className="w-9 h-9 rounded-xl bg-gold-500/15 border border-gold-500/30 flex items-center justify-center text-gold-400 shrink-0">
                   <Cookie className="w-4.5 h-4.5" />
@@ -160,7 +160,7 @@ export default function CookieConsent() {
                     </button>
                     <button
                       onClick={declineAll}
-                      className="py-2.5 px-5 rounded-xl bg-pine-800 hover:bg-pine-700 border border-pine-700 text-neutral-200 font-display font-bold text-xs transition-colors cursor-pointer"
+                      className="py-2.5 px-5 rounded-xl bg-sand-800 hover:bg-sand-700 border border-sand-700 text-neutral-200 font-display font-bold text-xs transition-colors cursor-pointer"
                     >
                       Decline
                     </button>
@@ -192,10 +192,10 @@ export default function CookieConsent() {
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
-              className="w-full max-w-lg bg-pine-900 border border-pine-700 rounded-2xl shadow-2xl overflow-hidden"
+              className="w-full max-w-lg bg-sand-900 border border-sand-700 rounded-2xl shadow-2xl overflow-hidden"
               onClick={e => e.stopPropagation()}
             >
-              <div className="flex items-center justify-between p-5 border-b border-pine-800">
+              <div className="flex items-center justify-between p-5 border-b border-sand-800">
                 <h3 className="font-display font-bold text-sm text-cream-100 flex items-center gap-2">
                   <Cookie className="w-4 h-4 text-gold-400" /> Cookie Settings
                 </h3>
@@ -207,15 +207,15 @@ export default function CookieConsent() {
               <div className="p-5 space-y-5">
                 <p className="text-xs text-neutral-400 leading-relaxed">{description}</p>
 
-                <div className="rounded-xl border border-pine-800 bg-pine-950/50 p-4 space-y-3">
+                <div className="rounded-xl border border-sand-800 bg-sand-950/50 p-4 space-y-3">
                   <div className="flex items-center justify-between gap-4">
                     <div>
                       <span className="font-display font-bold text-xs text-cream-100 block">Essential cookies</span>
                       <span className="text-[11px] text-neutral-500">Needed for the site to work. Always on.</span>
                     </div>
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-neutral-500 py-1 px-2 rounded-full border border-pine-700">Always on</span>
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-neutral-500 py-1 px-2 rounded-full border border-sand-700">Always on</span>
                   </div>
-                  <div className="flex items-center justify-between gap-4 pt-3 border-t border-pine-800">
+                  <div className="flex items-center justify-between gap-4 pt-3 border-t border-sand-800">
                     <div>
                       <span className="font-display font-bold text-xs text-cream-100 block">Analytics cookie (visitor counter)</span>
                       <span className="text-[11px] text-neutral-500">One anonymous ID so we can count unique visitors.</span>
@@ -225,7 +225,7 @@ export default function CookieConsent() {
                       role="switch"
                       aria-checked={settingsAnalytics}
                       onClick={() => setSettingsAnalytics(v => !v)}
-                      className={`w-11 h-6 rounded-full transition-colors shrink-0 relative ${settingsAnalytics ? 'bg-gold-500' : 'bg-pine-700'}`}
+                      className={`w-11 h-6 rounded-full transition-colors shrink-0 relative ${settingsAnalytics ? 'bg-gold-500' : 'bg-sand-700'}`}
                     >
                       <span className={`absolute top-0.5 w-5 h-5 rounded-full bg-white transition-all ${settingsAnalytics ? 'left-[22px]' : 'left-0.5'}`} />
                     </button>
@@ -233,10 +233,10 @@ export default function CookieConsent() {
                 </div>
               </div>
 
-              <div className="flex justify-end gap-2.5 p-5 border-t border-pine-800">
+              <div className="flex justify-end gap-2.5 p-5 border-t border-sand-800">
                 <button
                   onClick={() => setShowSettings(false)}
-                  className="py-2.5 px-4 rounded-xl bg-pine-800 hover:bg-pine-700 border border-pine-700 text-neutral-200 font-display font-bold text-xs transition-colors"
+                  className="py-2.5 px-4 rounded-xl bg-sand-800 hover:bg-sand-700 border border-sand-700 text-neutral-200 font-display font-bold text-xs transition-colors"
                 >
                   Cancel
                 </button>

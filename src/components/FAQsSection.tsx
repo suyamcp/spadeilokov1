@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { HelpCircle, ChevronDown, BookOpen, Warehouse, HeartHandshake, ShieldAlert, Sparkles, Send, Loader2 } from 'lucide-react';
+import { HelpCircle, ChevronDown, BookOpen, HeartHandshake, ShieldAlert, Sparkles, Send, Loader2 } from 'lucide-react';
 import { FAQ } from '../types';
 
 interface FAQsSectionProps {
@@ -10,10 +10,10 @@ interface FAQsSectionProps {
 type ChatMsg = { role: 'user' | 'model'; text: string };
 
 const SUGGESTED_QUESTIONS = [
-  'How much is a night in the luxury cabin?',
+  'Which branches do you have?',
+  'How much is a classic hilot session?',
   'How do I pay for my booking?',
-  'What activities can we do there?',
-  'How do I get to Valleypoint from Baguio?',
+  'What is included in every treatment?',
 ];
 
 function FaqAssistant() {
@@ -40,7 +40,7 @@ function FaqAssistant() {
     })
       .then(res => res.json())
       .then((data: any) => {
-        setMessages(m => [...m, { role: 'model', text: data.reply || "Sorry, I couldn't answer that. Please contact the campsite directly." }]);
+        setMessages(m => [...m, { role: 'model', text: data.reply || "Sorry, I couldn't answer that. Please contact your nearest branch directly." }]);
       })
       .catch(() => {
         setMessages(m => [...m, { role: 'model', text: 'Something went wrong reaching the assistant. Please try again shortly.' }]);
@@ -50,14 +50,14 @@ function FaqAssistant() {
 
   return (
     <div className="mt-16 max-w-3xl mx-auto" id="faq_ai_assistant">
-      <div className="bg-pine-950/50 border border-pine-800 rounded-3xl overflow-hidden shadow-2xl">
-        <div className="p-5 border-b border-pine-800 flex items-center gap-3 bg-pine-950/60">
+      <div className="bg-sand-950/50 border border-sand-800 rounded-3xl overflow-hidden shadow-2xl">
+        <div className="p-5 border-b border-sand-800 flex items-center gap-3 bg-sand-950/60">
           <div className="w-9 h-9 rounded-xl bg-gold-500/15 border border-gold-500/30 flex items-center justify-center text-gold-400 shrink-0">
             <Sparkles className="w-4.5 h-4.5" />
           </div>
           <div>
-            <h3 className="font-display font-bold text-sm text-cream-100">Ask Valleypoint</h3>
-            <p className="text-[11px] text-neutral-400">Instant answers about rates, rooms, activities, booking &amp; directions — straight from our latest info.</p>
+            <h3 className="font-display font-bold text-sm text-cream-100">Ask Spa de Iloko</h3>
+            <p className="text-[11px] text-neutral-400">Instant answers about branches, package rates, treatments, booking &amp; payment — straight from our latest info.</p>
           </div>
         </div>
 
@@ -70,7 +70,7 @@ function FaqAssistant() {
                   <button
                     key={s}
                     onClick={() => send(s)}
-                    className="text-[11px] py-1.5 px-3 rounded-full bg-pine-900 border border-pine-800 text-neutral-300 hover:border-gold-500/50 hover:text-gold-300 transition-colors"
+                    className="text-[11px] py-1.5 px-3 rounded-full bg-sand-900 border border-sand-800 text-neutral-300 hover:border-gold-500/50 hover:text-gold-300 transition-colors"
                   >
                     {s}
                   </button>
@@ -84,7 +84,7 @@ function FaqAssistant() {
               <div className={`max-w-[85%] rounded-2xl px-3.5 py-2.5 text-xs leading-relaxed whitespace-pre-wrap ${
                 m.role === 'user'
                   ? 'bg-gold-500 text-ink font-medium rounded-br-sm'
-                  : 'bg-pine-900 border border-pine-800 text-neutral-200 rounded-bl-sm'
+                  : 'bg-sand-900 border border-sand-800 text-neutral-200 rounded-bl-sm'
               }`}>
                 {m.text}
               </div>
@@ -93,7 +93,7 @@ function FaqAssistant() {
 
           {loading && (
             <div className="flex justify-start">
-              <div className="bg-pine-900 border border-pine-800 text-neutral-400 rounded-2xl rounded-bl-sm px-3.5 py-2.5 text-xs flex items-center gap-2">
+              <div className="bg-sand-900 border border-sand-800 text-neutral-400 rounded-2xl rounded-bl-sm px-3.5 py-2.5 text-xs flex items-center gap-2">
                 <Loader2 className="w-3.5 h-3.5 animate-spin" /> Thinking…
               </div>
             </div>
@@ -102,7 +102,7 @@ function FaqAssistant() {
 
         <form
           onSubmit={e => { e.preventDefault(); send(input); }}
-          className="p-4 border-t border-pine-800 flex gap-2 bg-pine-950/60"
+          className="p-4 border-t border-sand-800 flex gap-2 bg-sand-950/60"
         >
           <input
             type="text"
@@ -110,7 +110,7 @@ function FaqAssistant() {
             onChange={e => setInput(e.target.value)}
             placeholder="Type your question…"
             maxLength={1000}
-            className="flex-1 bg-pine-900 border border-pine-800 focus:border-gold-500 text-cream-50 px-4 py-2.5 rounded-xl text-xs outline-none transition-colors"
+            className="flex-1 bg-sand-900 border border-sand-800 focus:border-gold-500 text-cream-50 px-4 py-2.5 rounded-xl text-xs outline-none transition-colors"
           />
           <button
             type="submit"
@@ -122,7 +122,7 @@ function FaqAssistant() {
         </form>
       </div>
       <p className="text-[10px] text-neutral-600 text-center mt-3">
-        Answers come from Valleypoint's current site info. For bookings and confirmations, please use the reservation portal or contact the campsite.
+        Answers come from Spa de Iloko's current site info. For bookings and confirmations, please use the reservation portal or contact your branch.
       </p>
     </div>
   );
@@ -134,9 +134,9 @@ export default function FAQsSection({ faqs }: FAQsSectionProps) {
 
   const categories = [
     { id: 'all', name: 'All Queries', icon: <HelpCircle className="w-3.5 h-3.5" /> },
-    { id: 'booking', name: 'Rates & Arrival', icon: <BookOpen className="w-3.5 h-3.5" /> },
-    { id: 'stay', name: 'Weather & Gear', icon: <Warehouse className="w-3.5 h-3.5" /> },
-    { id: 'amenities', name: 'Connectivity', icon: <HeartHandshake className="w-3.5 h-3.5" /> },
+    { id: 'booking', name: 'Booking & Branches', icon: <BookOpen className="w-3.5 h-3.5" /> },
+    { id: 'treatments', name: 'Treatments', icon: <HeartHandshake className="w-3.5 h-3.5" /> },
+    { id: 'amenities', name: 'What’s Included', icon: <Sparkles className="w-3.5 h-3.5" /> },
     { id: 'policies', name: 'Rules & Policies', icon: <ShieldAlert className="w-3.5 h-3.5" /> }
   ];
 
@@ -153,7 +153,7 @@ export default function FAQsSection({ faqs }: FAQsSectionProps) {
   };
 
   return (
-    <section id="faqs" className="py-24 bg-pine-900 border-t border-pine-850 text-cream-50 scroll-mt-20">
+    <section id="faqs" className="py-24 bg-sand-900 border-t border-sand-850 text-cream-50 scroll-mt-20">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         
         {/* Section Heading */}
@@ -165,7 +165,7 @@ export default function FAQsSection({ faqs }: FAQsSectionProps) {
             Frequently Asked Questions
           </h2>
           <p className="text-sm text-neutral-400 leading-relaxed">
-            Need directions on Baguio commutes or advice on wool sweaters? Browse our organized mountain handbooks to set up your expectations.
+            Not sure which treatment to book, or what happens on your first visit? Browse the answers below, or ask our assistant anything.
           </p>
         </div>
 
@@ -187,7 +187,7 @@ export default function FAQsSection({ faqs }: FAQsSectionProps) {
                     className={`py-3 px-4 rounded-xl font-display font-medium text-xs transition-all flex items-center gap-2.5 shrink-0 text-left w-auto lg:w-full ${
                       isActive
                         ? 'bg-gold-500 text-ink font-bold shadow-lg shadow-gold-500/10'
-                        : 'bg-pine-950/40 border border-pine-850/60 hover:border-pine-700 text-neutral-300'
+                        : 'bg-sand-950/40 border border-sand-850/60 hover:border-sand-700 text-neutral-300'
                     }`}
                   >
                     <span className={isActive ? 'text-ink' : 'text-gold-500'}>
@@ -213,13 +213,13 @@ export default function FAQsSection({ faqs }: FAQsSectionProps) {
                       initial={{ opacity: 0, y: 5 }}
                       animate={{ opacity: 1, y: 0 }}
                       exit={{ opacity: 0, y: -5 }}
-                      className="bg-pine-950/40 border border-pine-850/60 rounded-2xl overflow-hidden transition-all duration-300"
+                      className="bg-sand-950/40 border border-sand-850/60 rounded-2xl overflow-hidden transition-all duration-300"
                       id={`faq_accordion_${faq.id}`}
                     >
                       {/* Header trigger */}
                       <button
                         onClick={() => toggleFAQ(faq.id)}
-                        className="w-full py-4.5 px-5 flex items-center justify-between text-left hover:bg-pine-950/80 transition-colors gap-3"
+                        className="w-full py-4.5 px-5 flex items-center justify-between text-left hover:bg-sand-950/80 transition-colors gap-3"
                         aria-expanded={isOpen}
                       >
                         <span className="font-display font-semibold text-xs sm:text-sm text-cream-100 pr-4">
@@ -230,7 +230,7 @@ export default function FAQsSection({ faqs }: FAQsSectionProps) {
 
                       {/* Expandable answer */}
                       {isOpen && (
-                        <div className="border-t border-pine-850/50 bg-pine-950/20 p-5 text-left text-xs leading-relaxed text-neutral-300">
+                        <div className="border-t border-sand-850/50 bg-sand-950/20 p-5 text-left text-xs leading-relaxed text-neutral-300">
                           <p>{faq.answer}</p>
                         </div>
                       )}
@@ -239,7 +239,7 @@ export default function FAQsSection({ faqs }: FAQsSectionProps) {
                 })}
               </AnimatePresence>
             ) : (
-              <div className="py-12 border border-dashed border-pine-850 rounded-2xl text-center text-neutral-500 text-xs flex flex-col items-center justify-center p-6 space-y-2">
+              <div className="py-12 border border-dashed border-sand-850 rounded-2xl text-center text-neutral-500 text-xs flex flex-col items-center justify-center p-6 space-y-2">
                 <HelpCircle className="w-6 h-6 text-neutral-700 animate-pulse" />
                 <span>No FAQ entries added by the administrator yet.</span>
                 <span className="text-[10px] text-neutral-600">Populate standard FAQs instantly by seeding demo content inside the Admin Panel.</span>
@@ -247,7 +247,7 @@ export default function FAQsSection({ faqs }: FAQsSectionProps) {
             )}
 
             {faqs.length > 0 && filteredFAQs.length === 0 && (
-              <div className="py-12 border border-dashed border-pine-850 rounded-2xl text-center text-neutral-400 text-xs">
+              <div className="py-12 border border-dashed border-sand-850 rounded-2xl text-center text-neutral-400 text-xs">
                 No items found for the selected category.
               </div>
             )}

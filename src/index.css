@@ -2,13 +2,17 @@
 @import "tailwindcss";
 
 /* ==========================================================================
-   THEMING
-   Every brand colour is declared with `@theme inline` pointing at a --vp-*
+   THEMING — SPA DE ILOKO
+   Every brand colour is declared with `@theme inline` pointing at a --sdi-*
    variable. "inline" makes Tailwind substitute the var() reference straight
-   into each utility -- including opacity variants such as `bg-pine-950/40`,
+   into each utility -- including opacity variants such as `bg-sand-950/40`,
    which would otherwise bake in a literal hex and refuse to change theme.
-   Swapping the --vp-* values under [data-theme="light"] therefore re-skins
+   Swapping the --sdi-* values under [data-theme="dark"] therefore re-skins
    the entire site without touching a single className.
+
+   The palette is lifted from the brand itself: the light brown of the treatment
+   rooms, the deep forest green and warm bronze of the logo, and the amber glow
+   of the rattan lighting in the branches.
    ========================================================================== */
 
 @theme {
@@ -18,150 +22,152 @@
 
   /* Always-light surfaces: the printed reservation ticket and the logo badges.
      A paper voucher should look like paper in either theme, so these never flip. */
-  --color-paper-50: #fcfcf9;
-  --color-paper-100: #faf9f2;
-  --color-paper-200: #f1efe6;
-  --color-ink: #0a1710;
-  --color-ink-700: #33413a;
-  --color-ink-500: #5f6b64;
+  --color-paper-50: #fdfaf4;
+  --color-paper-100: #faf5ea;
+  --color-paper-200: #f1e8d8;
+  --color-ink: #2a1c0c;
+  --color-ink-700: #4a3826;
+  --color-ink-500: #7a6349;
 }
 
 @theme inline {
-  --color-pine-950: var(--vp-pine-950);
-  --color-pine-900: var(--vp-pine-900);
-  --color-pine-850: var(--vp-pine-850);
-  --color-pine-800: var(--vp-pine-800);
-  --color-pine-750: var(--vp-pine-750);
-  --color-pine-700: var(--vp-pine-700);
-  --color-pine-600: var(--vp-pine-600);
-  --color-pine-500: var(--vp-pine-500);
-  --color-pine-400: var(--vp-pine-400);
-  --color-pine-300: var(--vp-pine-300);
-  --color-pine-200: var(--vp-pine-200);
-  --color-pine-100: var(--vp-pine-100);
+  --color-sand-950: var(--sdi-sand-950);
+  --color-sand-900: var(--sdi-sand-900);
+  --color-sand-850: var(--sdi-sand-850);
+  --color-sand-800: var(--sdi-sand-800);
+  --color-sand-750: var(--sdi-sand-750);
+  --color-sand-700: var(--sdi-sand-700);
+  --color-sand-600: var(--sdi-sand-600);
+  --color-sand-500: var(--sdi-sand-500);
+  --color-sand-400: var(--sdi-sand-400);
+  --color-sand-300: var(--sdi-sand-300);
+  --color-sand-200: var(--sdi-sand-200);
+  --color-sand-100: var(--sdi-sand-100);
 
-  --color-gold-600: var(--vp-gold-600);
-  --color-gold-500: var(--vp-gold-500);
-  --color-gold-400: var(--vp-gold-400);
-  --color-gold-300: var(--vp-gold-300);
-  --color-gold-200: var(--vp-gold-200);
+  --color-gold-600: var(--sdi-gold-600);
+  --color-gold-500: var(--sdi-gold-500);
+  --color-gold-400: var(--sdi-gold-400);
+  --color-gold-300: var(--sdi-gold-300);
+  --color-gold-200: var(--sdi-gold-200);
 
-  --color-cream-50: var(--vp-cream-50);
-  --color-cream-100: var(--vp-cream-100);
-  --color-cream-200: var(--vp-cream-200);
-  --color-cream-300: var(--vp-cream-300);
-  --color-cream-400: var(--vp-cream-400);
+  --color-cream-50: var(--sdi-cream-50);
+  --color-cream-100: var(--sdi-cream-100);
+  --color-cream-200: var(--sdi-cream-200);
+  --color-cream-300: var(--sdi-cream-300);
+  --color-cream-400: var(--sdi-cream-400);
 
-  --color-neutral-100: var(--vp-neutral-100);
-  --color-neutral-200: var(--vp-neutral-200);
-  --color-neutral-300: var(--vp-neutral-300);
-  --color-neutral-400: var(--vp-neutral-400);
-  --color-neutral-500: var(--vp-neutral-500);
-  --color-neutral-600: var(--vp-neutral-600);
-  --color-neutral-700: var(--vp-neutral-700);
-  --color-neutral-800: var(--vp-neutral-800);
-  --color-neutral-850: var(--vp-neutral-850);
-  --color-neutral-900: var(--vp-neutral-900);
+  --color-neutral-100: var(--sdi-neutral-100);
+  --color-neutral-200: var(--sdi-neutral-200);
+  --color-neutral-300: var(--sdi-neutral-300);
+  --color-neutral-400: var(--sdi-neutral-400);
+  --color-neutral-500: var(--sdi-neutral-500);
+  --color-neutral-600: var(--sdi-neutral-600);
+  --color-neutral-700: var(--sdi-neutral-700);
+  --color-neutral-800: var(--sdi-neutral-800);
+  --color-neutral-850: var(--sdi-neutral-850);
+  --color-neutral-900: var(--sdi-neutral-900);
 }
 
-/* ---------- DARK (default) ---------- */
+/* ---------- LIGHT BROWN (default) ----------
+   The signature Spa de Iloko look. The page itself is a warm light brown; panels
+   sit a shade lighter so cards lift off the ground, and every border is drawn in
+   a deeper clay so nothing dissolves. Type is a deep coffee brown rather than
+   black -- warmer, and it matches the brown script in the logo. The saturated
+   end of the sand scale (600 and below) is the logo's forest green, which is
+   what the site reaches for whenever it needs an accent that is not gold.
+   -------------------------------------------------------------------------- */
 :root {
-  color-scheme: dark;
-
-  --vp-pine-950: #020f07;   /* page background */
-  --vp-pine-900: #051a0e;   /* cards / panels  */
-  --vp-pine-850: #082414;   /* raised / borders */
-  --vp-pine-800: #062c15;   /* borders */
-  --vp-pine-750: #0a3a1d;
-  --vp-pine-700: #0e4424;
-  --vp-pine-600: #165b32;
-  --vp-pine-500: #1e7a44;
-  --vp-pine-400: #29a35c;
-  --vp-pine-300: #49c47e;
-  --vp-pine-200: #88e0ae;
-  --vp-pine-100: #c3f3d7;
-
-  --vp-gold-600: #a87e2a;
-  --vp-gold-500: #c9a054;
-  --vp-gold-400: #e0bb73;
-  --vp-gold-300: #ebd29b;
-  --vp-gold-200: #f5e7c4;
-
-  --vp-cream-50: #fcfcf9;   /* body text */
-  --vp-cream-100: #faf9f2;  /* headings */
-  --vp-cream-200: #f4f2e3;
-  --vp-cream-300: #ebe8cd;
-  --vp-cream-400: #ded9b1;
-
-  --vp-neutral-100: #f5f5f5;
-  --vp-neutral-200: #e5e5e5;
-  --vp-neutral-300: #d4d4d4;
-  --vp-neutral-400: #a3a3a3;  /* muted body copy */
-  --vp-neutral-500: #737373;
-  --vp-neutral-600: #525252;
-  --vp-neutral-700: #404040;
-  --vp-neutral-800: #262626;
-  --vp-neutral-850: #1c1c1c;
-  --vp-neutral-900: #171717;
-}
-
-/* ---------- LIGHT ----------
-   Not a mechanical inversion. The page is pure white; type is a deep forest
-   near-black (warmer and more expensive-looking than pure #000); secondary
-   copy steps down through warm greens rather than flat grey. Brand gold is
-   KEPT at full strength for button fills and borders, while the lighter golds
-   -- which exist to be readable text on dark -- become deep bronze so they
-   stay legible on white.
-   ------------------------------------------------------------------------ */
-[data-theme="light"] {
   color-scheme: light;
 
-  /* Surfaces: only the page is pure white. Panels carry the faintest warm
-     tint and borders stay clearly drawn so nothing dissolves. */
-  --vp-pine-950: #ffffff;   /* page */
-  --vp-pine-900: #f7faf6;   /* cards / panels */
-  --vp-pine-850: #ccd5c5;   /* card edges */
-  --vp-pine-800: #b8c4af;   /* main borders */
-  --vp-pine-750: #a6b39d;
-  --vp-pine-700: #94a38b;
+  --sdi-sand-950: #ece0cb;   /* page background — light brown */
+  --sdi-sand-900: #f6efe2;   /* cards / panels  */
+  --sdi-sand-850: #dccbad;   /* raised / card edges */
+  --sdi-sand-800: #cdb894;   /* main borders */
+  --sdi-sand-750: #bea47c;
+  --sdi-sand-700: #ae8f65;
 
-  /* Saturated greens stay green, deepened to read on white. */
-  --vp-pine-600: #1c6b3b;
-  --vp-pine-500: #1a7040;
-  --vp-pine-400: #1c8049;
-  --vp-pine-300: #228f57;
-  --vp-pine-200: #7fce9f;
-  --vp-pine-100: #d6f0e0;
+  /* The logo's forest green, deepened so it reads on light brown. */
+  --sdi-sand-600: #2c6647;
+  --sdi-sand-500: #2f7050;
+  --sdi-sand-400: #347d59;
+  --sdi-sand-300: #3b8c65;
+  --sdi-sand-200: #8ec8ab;
+  --sdi-sand-100: #d8ecdf;
 
   /* Gold: 500 is the brand fill (buttons, borders) and must stay bright.
-     400/300/200 are text-on-dark tokens, so they invert to deep bronze. */
-  --vp-gold-600: #6b4e14;
-  --vp-gold-500: #c9a054;
-  --vp-gold-400: #7d5a15;
-  --vp-gold-300: #6b4d10;
-  --vp-gold-200: #5a4009;
+     400/300/200 exist to be readable text, so they deepen to bronze here. */
+  --sdi-gold-600: #6d4c17;
+  --sdi-gold-500: #c19549;
+  --sdi-gold-400: #86601f;
+  --sdi-gold-300: #6f4e15;
+  --sdi-gold-200: #5b3f0e;
 
-  /* Type: deep forest black for headings, stepping down to soft green-grey. */
-  --vp-cream-100: #0c1d14;  /* headings */
-  --vp-cream-50:  #1e2f27;  /* body */
-  --vp-cream-200: #35463d;
-  --vp-cream-300: #4b5c53;
-  --vp-cream-400: #61726a;
+  /* Type: deep coffee for headings, stepping down through warm browns. */
+  --sdi-cream-100: #32210f;  /* headings */
+  --sdi-cream-50:  #45301a;  /* body */
+  --sdi-cream-200: #543f29;
+  --sdi-cream-300: #634f39;
+  --sdi-cream-400: #735e48;
 
-  /* Secondary copy. 400 is the workhorse muted tone (~6.4:1 on white). */
-  --vp-neutral-100: #0a1610;
-  --vp-neutral-200: #18261f;
-  --vp-neutral-300: #2c3d34;
-  --vp-neutral-400: #54655c;
-  --vp-neutral-500: #68786e;
-  --vp-neutral-600: #7e8d84;
-  --vp-neutral-700: #c4cec0;
-  --vp-neutral-800: #a3b09c;
-  --vp-neutral-850: #97a690;
-  --vp-neutral-900: #7d8c84;
+  /* Secondary copy. 400 is the workhorse muted tone on light brown. */
+  --sdi-neutral-100: #291a0a;
+  --sdi-neutral-200: #392918;
+  --sdi-neutral-300: #4b3a27;
+  --sdi-neutral-400: #6a563e;
+  --sdi-neutral-500: #7d6950;
+  --sdi-neutral-600: #927f5f;
+  --sdi-neutral-700: #c8b494;
+  --sdi-neutral-800: #d7c5a7;
+  --sdi-neutral-850: #ddcdb1;
+  --sdi-neutral-900: #e5d7bd;
 }
 
-body { background-color: var(--vp-pine-950); }
+/* ---------- DARK ----------
+   Not a mechanical inversion. Evening treatment-room light: espresso browns for
+   the surfaces, warm amber gold for the accents, and cream for the type. The
+   greens stay green so the brand accent survives the flip.
+   -------------------------------------------------------------------------- */
+[data-theme="dark"] {
+  color-scheme: dark;
+
+  --sdi-sand-950: #1c140c;   /* page background */
+  --sdi-sand-900: #281c12;   /* cards / panels  */
+  --sdi-sand-850: #352617;   /* raised / borders */
+  --sdi-sand-800: #422f1d;   /* borders */
+  --sdi-sand-750: #4e3924;
+  --sdi-sand-700: #5b442b;
+  --sdi-sand-600: #2f6b4b;
+  --sdi-sand-500: #38805b;
+  --sdi-sand-400: #439a6d;
+  --sdi-sand-300: #5db588;
+  --sdi-sand-200: #93d5b2;
+  --sdi-sand-100: #cdeddc;
+
+  --sdi-gold-600: #a87e2a;
+  --sdi-gold-500: #c9a054;
+  --sdi-gold-400: #e0bb73;
+  --sdi-gold-300: #ebd29b;
+  --sdi-gold-200: #f5e7c4;
+
+  --sdi-cream-50: #fbf6ec;   /* body text */
+  --sdi-cream-100: #fdfaf3;  /* headings */
+  --sdi-cream-200: #f4ecdd;
+  --sdi-cream-300: #e9dfca;
+  --sdi-cream-400: #dbcdae;
+
+  --sdi-neutral-100: #f6f3ee;
+  --sdi-neutral-200: #e7e1d8;
+  --sdi-neutral-300: #d6cec1;
+  --sdi-neutral-400: #a89c8b;  /* muted body copy */
+  --sdi-neutral-500: #7c7263;
+  --sdi-neutral-600: #5a5145;
+  --sdi-neutral-700: #453d33;
+  --sdi-neutral-800: #2b251d;
+  --sdi-neutral-850: #211c16;
+  --sdi-neutral-900: #191410;
+}
+
+body { background-color: var(--sdi-sand-950); }
 
 /* Custom scrollbars inside the application */
 ::-webkit-scrollbar {
@@ -169,41 +175,42 @@ body { background-color: var(--vp-pine-950); }
   height: 6px;
 }
 ::-webkit-scrollbar-track {
-  background: var(--vp-pine-900);
+  background: var(--sdi-sand-900);
 }
 ::-webkit-scrollbar-thumb {
-  background: var(--vp-gold-500);
+  background: var(--sdi-gold-500);
   border-radius: 3px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--vp-gold-400);
+  background: var(--sdi-gold-400);
 }
 
-/* Dark-mode shadows are heavy black glows; on white they read as smudges.
-   Light mode gets soft, layered, slightly green-tinted elevation instead. */
-[data-theme="light"] .shadow-2xl {
-  box-shadow: 0 1px 2px rgba(20, 42, 30, 0.04), 0 12px 32px -8px rgba(20, 42, 30, 0.12);
+/* Dark-mode shadows are heavy black glows; on light brown they read as smudges.
+   The default theme gets soft, layered, warm-tinted elevation instead.
+   `:not([data-theme="dark"])` so these apply both when no theme has been chosen
+   and when the visitor has explicitly picked light. */
+:root:not([data-theme="dark"]) .shadow-2xl {
+  box-shadow: 0 1px 2px rgba(58, 38, 18, 0.05), 0 12px 32px -8px rgba(58, 38, 18, 0.16);
 }
-[data-theme="light"] .shadow-xl {
-  box-shadow: 0 1px 2px rgba(20, 42, 30, 0.04), 0 8px 22px -6px rgba(20, 42, 30, 0.10);
+:root:not([data-theme="dark"]) .shadow-xl {
+  box-shadow: 0 1px 2px rgba(58, 38, 18, 0.05), 0 8px 22px -6px rgba(58, 38, 18, 0.13);
 }
-[data-theme="light"] .shadow-lg {
-  box-shadow: 0 1px 2px rgba(20, 42, 30, 0.04), 0 5px 14px -4px rgba(20, 42, 30, 0.08);
+:root:not([data-theme="dark"]) .shadow-lg {
+  box-shadow: 0 1px 2px rgba(58, 38, 18, 0.05), 0 5px 14px -4px rgba(58, 38, 18, 0.11);
 }
-[data-theme="light"] .shadow-md { box-shadow: 0 2px 8px -2px rgba(20, 42, 30, 0.08); }
-[data-theme="light"] .shadow-inner { box-shadow: inset 0 1px 3px rgba(20, 42, 30, 0.05); }
+:root:not([data-theme="dark"]) .shadow-md { box-shadow: 0 2px 8px -2px rgba(58, 38, 18, 0.11); }
+:root:not([data-theme="dark"]) .shadow-inner { box-shadow: inset 0 1px 3px rgba(58, 38, 18, 0.07); }
 
 /* Text selection should feel branded, not the browser default blue. */
-[data-theme="light"] ::selection { background: #f0e2c2; color: #0c1d14; }
+:root:not([data-theme="dark"]) ::selection { background: #e6d0a5; color: #32210f; }
 
 /* Ease the flip between themes rather than snapping. */
 html { transition: background-color 220ms ease; }
 body { transition: background-color 220ms ease, color 220ms ease; }
 
-
 /* Accent text that is near-white by design (calendar day numbers, status chips)
-   would vanish on a white page, so darken those specific Tailwind tokens. */
-[data-theme="light"] {
+   would vanish on light brown, so darken those specific Tailwind tokens. */
+:root:not([data-theme="dark"]) {
   --color-emerald-50:  #0f4c34;
   --color-emerald-100: #115939;
   --color-emerald-200: #136844;
@@ -216,16 +223,16 @@ body { transition: background-color 220ms ease, color 220ms ease; }
   --color-sky-50:      #0d5170;
 }
 
-/* The dark-mode "fog" that fades photos into the page reads as haze on white. */
-[data-theme="light"] .img-fade { display: none; }
+/* The dark-mode "fog" that fades photos into the page reads as haze on light brown. */
+:root:not([data-theme="dark"]) .img-fade { display: none; }
 
 /* Glow effects and animation classes */
 @keyframes pulse-glow {
   0%, 100% {
-    box-shadow: 0 0 5px rgba(201, 160, 84, 0.4), 0 0 10px rgba(201, 160, 84, 0.2);
+    box-shadow: 0 0 5px rgba(193, 149, 73, 0.4), 0 0 10px rgba(193, 149, 73, 0.2);
   }
   50% {
-    box-shadow: 0 0 15px rgba(201, 160, 84, 0.8), 0 0 25px rgba(201, 160, 84, 0.4);
+    box-shadow: 0 0 15px rgba(193, 149, 73, 0.8), 0 0 25px rgba(193, 149, 73, 0.4);
   }
 }
 

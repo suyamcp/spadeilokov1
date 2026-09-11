@@ -77,7 +77,7 @@ async function run() {
       const bookingsList = await db.execute(sql`SELECT id FROM "bookings";`);
       console.log('Populating references for ' + bookingsList.rowCount + ' existing bookings...');
       for (const row of bookingsList.rows as any[]) {
-        const ref = 'VP-' + Math.random().toString(36).substring(2, 8).toUpperCase();
+        const ref = 'SDI-' + Math.random().toString(36).substring(2, 8).toUpperCase();
         await db.execute(sql`UPDATE "bookings" SET "reference" = ${ref} WHERE id = ${row.id};`);
       }
 
@@ -166,15 +166,21 @@ async function run() {
       CHECK (payment_status IN ('pending', 'completed', 'refunded', 'failed'));
     `);
 
-    // 9. Seed some basic Add-ons if they do not exist
+    // 9. Add the branch column to "rooms" (six-branch booking flow)
+    console.log('Ensuring "branch" column on "rooms"...');
+    await db.execute(sql`ALTER TABLE "rooms" ADD COLUMN IF NOT EXISTS "branch" varchar(40);`);
+    await db.execute(sql`UPDATE "rooms" SET "branch" = 'baguio' WHERE "branch" IS NULL;`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS "idx_rooms_branch" ON "rooms" ("branch");`);
+
+    // 10. Seed the spa add-ons if they do not exist
     console.log('Seeding default Add-ons if needed...');
     await db.execute(sql`
       INSERT INTO "add_ons" ("name", "description", "price")
       VALUES 
-        ('Campfire Wood Bundle', 'A full stack of seasoned pine wood logs with a fire starter pack', 250.00),
-        ('Breakfast Buffet Pass', 'Morning coffee, fresh fruits, garlic rice, eggs, and longganisa', 350.00),
-        ('ATV Adventure Trail', '1-hour guided ATV mountain trail experience', 1200.00),
-        ('Archery Session', '30 minutes of archery practice with equipment and tutor', 300.00)
+        ('Hot Stone Upgrade', 'Heated basalt stones worked along the back and shoulders before the massage proper begins', 350.00),
+        ('Herbal Foot Scrub & Soak', 'A twenty-minute lemongrass and sea salt soak, followed by a full foot and calf scrub', 250.00),
+        ('Ginger Tea & Wellness Snack', 'Hot salabat brewed from native ginger, served with honey and local rice cakes', 150.00),
+        ('Premium Aromatherapy Oil', 'Lavender, eucalyptus or ylang-ylang in a cold-pressed virgin coconut oil base', 200.00)
       ON CONFLICT ("name") DO NOTHING;
     `);
 

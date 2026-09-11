@@ -13,7 +13,7 @@ export const guests = pgTable('guests', {
   updatedAt: timestamp('updated_at').defaultNow(),
 });
 
-// 2. ROOM TYPES TABLE
+// 2. ROOM TYPES TABLE (one row per bookable spa package)
 export const roomTypes = pgTable('room_types', {
   id: serial('id').primaryKey(),
   slug: varchar('slug', { length: 50 }).notNull().unique(), // NEW
@@ -25,11 +25,14 @@ export const roomTypes = pgTable('room_types', {
   updatedAt: timestamp('updated_at').defaultNow(),
 });
 
-// 3. ROOMS TABLE
+// 3. TREATMENT ROOMS TABLE
 export const rooms = pgTable('rooms', {
   id: serial('id').primaryKey(),
   roomNumber: varchar('room_number', { length: 10 }).notNull().unique(),
   roomTypeId: integer('room_type_id').references(() => roomTypes.id, { onDelete: 'restrict' }).notNull(),
+  // Which Spa de Iloko location this treatment room physically sits in. Availability
+  // is counted per branch, so a room only ever blocks dates at its own branch.
+  branch: varchar('branch', { length: 40 }),
   floor: integer('floor'),
   status: varchar('status', { length: 20 }).default('available').notNull(), // available, occupied, under_maintenance
   notes: text('notes'),

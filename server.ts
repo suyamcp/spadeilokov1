@@ -14,6 +14,9 @@ import {
   visitors, visitEvents
 } from './src/db/schema.ts';
 import nodemailer from 'nodemailer';
+import { BRANCHES, BRANCH_CODES, SPA_PACKAGES, SERVICES, FAQS, ADD_ONS } from './src/data.ts';
+import { DEFAULT_HERO, DEFAULT_ABOUT } from './src/lib/cmsState.ts';
+import type { Branch } from './src/types.ts';
 
 // Running mode. The production bundle (dist/server.cjs) is compiled with
 // NODE_ENV baked to "production"; as a fallback we also treat "being run from
@@ -34,57 +37,127 @@ async function getRoomTypeBySlug(slug: string) {
   return rt;
 }
 
+// ==========================================================================
+// BRANCHES
+// The six Spa de Iloko locations. The admin can rename them (the list lives in
+// site_content under 'branches'), but the ids are stable keys stamped onto every
+// treatment room and every booking, so a rename never orphans a reservation.
+// ==========================================================================
+async function getBranches(): Promise<Branch[]> {
+  try {
+    const [row] = await db.select().from(siteContent).where(eq(siteContent.key, 'branches')).limit(1);
+    if (row?.value) {
+      const parsed = JSON.parse(row.value);
+      if (Array.isArray(parsed)) {
+        const usable = parsed.filter((b: any) => b && typeof b.id === 'string' && b.id);
+        if (usable.length) return usable as Branch[];
+      }
+    }
+  } catch (err) {
+    console.error('Failed to read branches, using built-in list:', err);
+  }
+  return BRANCHES;
+}
+
+/** Two-letter tag used inside generated room numbers (SG-BG-01). */
+const branchCode = (id: string) =>
+  BRANCH_CODES[id] || String(id).replace(/[^a-z0-9]/gi, '').slice(0, 2).toUpperCase() || 'XX';
+
+/** Short prefix per package, so room numbers stay inside the 10-char column. */
+const PACKAGE_PREFIX: Record<string, string> = {
+  'signature-suite': 'SG',
+  'deluxe-room': 'DX',
+  'classic-room': 'CL',
+};
+const packagePrefix = (slug: string) =>
+  PACKAGE_PREFIX[slug] || String(slug).split('-').map(w => w[0]).join('').slice(0, 2).toUpperCase();
+
+/** The bookable catalog, derived from the same source the front end renders. */
+const SPA_CATALOG = SPA_PACKAGES.map(p => ({
+  slug: p.id,
+  name: p.name,
+  baseRate: p.price.toFixed(2),
+  capacity: p.capacity,
+  quantity: p.quantity,
+}));
+
+// Deployments that ran the previous campsite build already have room types (and
+// bookings hanging off them). Re-point those rows at the spa catalog rather than
+// inserting duplicates, so historical reservations keep resolving.
+const LEGACY_SLUG_MAP: Record<string, string> = {
+  'luxury-cabin': 'signature-suite',
+  'deluxe-glamping': 'deluxe-room',
+  'standard-pitching': 'classic-room',
+};
+
 
 // ==========================================================================
-// ROOM INVENTORY
-// The admin's "plots available" number in the Accommodations tab is the source
-// of truth. This reconciles the physical `rooms` rows to match it, so the
-// calendar can never advertise more units than the booking engine will accept.
-// Units are only removed if they carry no bookings at all.
+// TREATMENT ROOM INVENTORY
+// The admin's "rooms per branch" number in the Spa Packages tab is the source of
+// truth. This reconciles the physical `rooms` rows to match it AT EVERY BRANCH,
+// so the calendar can never advertise more rooms than the booking engine will
+// accept. Units are only removed if they carry no bookings at all.
 // ==========================================================================
 async function reconcileRoomInventory(slug: string, desired: number) {
   const rt = await getRoomTypeBySlug(slug);
-  if (!rt) return { slug, ok: false, reason: 'unknown room type' };
+  if (!rt) return { slug, ok: false as const, reason: 'unknown room type' };
 
-  const target = Math.max(0, Math.min(500, Math.floor(Number(desired) || 0)));
-  const existing = await db.select().from(rooms).where(eq(rooms.roomTypeId, rt.id));
-  const current = existing.length;
-  if (target === current) return { slug, ok: true, current, target, added: 0, removed: 0 };
+  const target = Math.max(0, Math.min(200, Math.floor(Number(desired) || 0)));
+  const branches = await getBranches();
+  if (branches.length === 0) return { slug, ok: false as const, reason: 'no branches configured' };
 
-  // Prefix from the existing units (LC-, DG-, SP-), else initials of the slug.
-  const prefix = existing[0]?.roomNumber?.includes('-')
-    ? existing[0].roomNumber.split('-')[0]
-    : slug.split('-').map(w => w[0]).join('').toUpperCase();
+  const existingAll = await db.select().from(rooms).where(eq(rooms.roomTypeId, rt.id));
 
-  if (target > current) {
-    let maxN = 0;
-    for (const r of existing) {
-      const n = parseInt(String(r.roomNumber).split('-')[1] || '0', 10);
-      if (!isNaN(n) && n > maxN) maxN = n;
-    }
-    const toAdd = [];
-    for (let i = 1; i <= target - current; i++) {
-      toAdd.push({ roomNumber: `${prefix}-${String(maxN + i).padStart(2, '0')}`, roomTypeId: rt.id, status: 'available' });
-    }
-    await db.insert(rooms).values(toAdd).onConflictDoNothing();
-    return { slug, ok: true, current, target, added: toAdd.length, removed: 0 };
-  }
-
-  // Shrinking: only drop units that have never been booked, newest first.
+  // Rooms that have ever been booked can never be deleted — the reservation
+  // history references them.
   const booked = await db.selectDistinct({ roomId: bookingRooms.roomId }).from(bookingRooms);
   const bookedIds = new Set(booked.map(b => b.roomId));
-  const removable = existing
-    .filter(r => !bookedIds.has(r.id))
-    .sort((a, b) => String(b.roomNumber).localeCompare(String(a.roomNumber)));
 
-  const wanted = current - target;
-  const victims = removable.slice(0, wanted);
-  for (const v of victims) await db.delete(rooms).where(eq(rooms.id, v.id));
+  let added = 0;
+  let removed = 0;
+  let blocked = 0;
 
-  return {
-    slug, ok: true, current, target, added: 0, removed: victims.length,
-    blocked: wanted - victims.length,   // units kept because they hold bookings
-  };
+  for (const br of branches) {
+    const mine = existingAll.filter(r => r.branch === br.id);
+
+    if (mine.length < target) {
+      let maxN = 0;
+      for (const r of mine) {
+        const n = parseInt(String(r.roomNumber).split('-').pop() || '0', 10);
+        if (!isNaN(n) && n > maxN) maxN = n;
+      }
+      const toAdd = [];
+      for (let i = 1; i <= target - mine.length; i++) {
+        toAdd.push({
+          roomNumber: `${packagePrefix(slug)}-${branchCode(br.id)}-${String(maxN + i).padStart(2, '0')}`,
+          roomTypeId: rt.id,
+          branch: br.id,
+          status: 'available',
+        });
+      }
+      const inserted = await db.insert(rooms).values(toAdd).onConflictDoNothing().returning({ id: rooms.id });
+      added += inserted.length;
+    } else if (mine.length > target) {
+      // Shrinking: only drop units that have never been booked, newest first.
+      const removable = mine
+        .filter(r => !bookedIds.has(r.id))
+        .sort((a, b) => String(b.roomNumber).localeCompare(String(a.roomNumber)));
+      const wanted = mine.length - target;
+      const victims = removable.slice(0, wanted);
+      for (const v of victims) await db.delete(rooms).where(eq(rooms.id, v.id));
+      removed += victims.length;
+      blocked += wanted - victims.length;   // units kept because they hold bookings
+    }
+  }
+
+  // Report the number the calendar may safely advertise: the SMALLEST per-branch
+  // count we actually achieved. Erring low can only ever under-sell a branch,
+  // never double-book one.
+  const after = await db.select({ branch: rooms.branch }).from(rooms).where(eq(rooms.roomTypeId, rt.id));
+  const perBranch = branches.map(br => after.filter(r => r.branch === br.id).length);
+  const actual = perBranch.length ? Math.min(...perBranch) : target;
+
+  return { slug, ok: true as const, actual, target, added, removed, blocked };
 }
 
 // ==========================================
@@ -94,12 +167,12 @@ async function reconcileRoomInventory(slug: string, desired: number) {
 const DEFAULT_PAYMENT_INSTRUCTIONS = {
   headline: 'Send your payment to confirm this reservation',
   accounts: [
-    { method: 'GCash', accountName: 'Valleypoint Campsite', accountNumber: '0917-XXX-XXXX', qrImageUrl: '' },
-    { method: 'Maya', accountName: 'Valleypoint Campsite', accountNumber: '0917-XXX-XXXX', qrImageUrl: '' },
-    { method: 'Bank Transfer (BDO)', accountName: 'Valleypoint Campsite Inc.', accountNumber: '0000-0000-0000', qrImageUrl: '' },
+    { method: 'GCash', accountName: 'Spa de Iloko', accountNumber: '0917-XXX-XXXX', qrImageUrl: '' },
+    { method: 'Maya', accountName: 'Spa de Iloko', accountNumber: '0917-XXX-XXXX', qrImageUrl: '' },
+    { method: 'Bank Transfer (BDO)', accountName: 'Spa de Iloko Inc.', accountNumber: '0000-0000-0000', qrImageUrl: '' },
   ],
   proofEmail: 'payments@valleypoint.example',
-  note: 'Pay the full amount shown on your ticket using any option above, then email a clear screenshot or photo of your payment receipt (with your reference code) to the address above. Your reservation is confirmed once we verify your payment, usually within 24 hours. Unverified reservations may be released after 48 hours.',
+  note: 'Pay the full amount shown on your ticket using any option above, then email a clear screenshot or photo of your payment receipt (with your reference code) to the address above. Your appointment is confirmed once we verify your payment, usually within 24 hours. Unverified reservations may be released after 48 hours.',
 };
 
 async function getPaymentInstructions(): Promise<typeof DEFAULT_PAYMENT_INSTRUCTIONS> {
@@ -366,39 +439,145 @@ async function startServer() {
     }
   });
 
-  // --- DATABASE SELF-HEALING SEEDING FOR ROOMS, ROOM TYPES, AND DEFAULT ADMIN ---
-  async function seedRoomTypesAndRooms() {
+  // --- DATABASE SELF-HEALING SEEDING FOR TREATMENT ROOMS, PACKAGES, AND ADMIN ---
+
+  // The `branch` column arrived with the six-branch booking flow. Add it in place
+  // and stamp every pre-existing room with the first branch, so an upgraded
+  // database keeps serving its old reservations instead of losing them.
+  async function ensureBranchColumn() {
     try {
-      const existingTypes = await db.select().from(roomTypes).limit(1);
-      if (existingTypes.length === 0) {
-        console.log('No room types found in database. Seeding room types...');
-        await db.insert(roomTypes).values([
-          { id: 1, slug: 'luxury-cabin', name: 'Glass-Front Luxury Cabin', baseRate: '4999.00', capacity: 2 },
-          { id: 2, slug: 'deluxe-glamping', name: 'Deluxe Glamping Suite Tent', baseRate: '3200.00', capacity: 4 },
-          { id: 3, slug: 'standard-pitching', name: 'Premium Adventure Pitching Site', baseRate: '1200.00', capacity: 2 }
-        ]);
-        
-        console.log('Seeding physical units (rooms)...');
-        const roomsToInsert: any[] = [];
-        // 4 Luxury Cabins
-        for (let i = 1; i <= 4; i++) {
-          roomsToInsert.push({ roomNumber: `LC-${String(i).padStart(2, '0')}`, roomTypeId: 1, status: 'available' });
-        }
-        // 8 Glamping Tents
-        for (let i = 1; i <= 8; i++) {
-          roomsToInsert.push({ roomNumber: `DG-${String(i).padStart(2, '0')}`, roomTypeId: 2, status: 'available' });
-        }
-        // 15 Pitching sites
-        for (let i = 1; i <= 15; i++) {
-          roomsToInsert.push({ roomNumber: `SP-${String(i).padStart(2, '0')}`, roomTypeId: 3, status: 'available' });
-        }
-        await db.insert(rooms).values(roomsToInsert);
-        console.log('✓ Seeding room types and physical units completed successfully!');
-      } else {
-        console.log('Room types already exist. Skipping seed.');
+      await db.execute(sql`ALTER TABLE "rooms" ADD COLUMN IF NOT EXISTS "branch" varchar(40);`);
+      const branches = await getBranches();
+      const fallback = branches[0]?.id || 'baguio';
+      const { rows } = await db.execute(sql`
+        UPDATE "rooms" SET "branch" = ${fallback} WHERE "branch" IS NULL RETURNING id
+      `) as any;
+      if (rows?.length) console.log(`✓ Assigned ${rows.length} existing treatment room(s) to the "${fallback}" branch.`);
+      await db.execute(sql`CREATE INDEX IF NOT EXISTS "idx_rooms_branch" ON "rooms" ("branch");`);
+    } catch (err) {
+      console.error('Failed to ensure the rooms.branch column:', err);
+    }
+  }
+
+  // Re-point campsite-era room types at the spa catalog, preserving their ids so
+  // every existing booking still resolves to a package.
+  async function migrateLegacyRoomTypes() {
+    try {
+      const all = await db.select().from(roomTypes);
+      for (const rt of all) {
+        const newSlug = LEGACY_SLUG_MAP[rt.slug];
+        if (!newSlug) continue;
+        if (all.some(o => o.slug === newSlug)) continue; // the spa row already exists
+        const spec = SPA_CATALOG.find(c => c.slug === newSlug);
+        if (!spec) continue;
+        await db.update(roomTypes).set({
+          slug: spec.slug,
+          name: spec.name,
+          baseRate: spec.baseRate,
+          capacity: spec.capacity,
+          updatedAt: new Date(),
+        }).where(eq(roomTypes.id, rt.id));
+        console.log(`✓ Re-pointed room type "${rt.slug}" → "${spec.slug}".`);
       }
     } catch (err) {
-      console.error('Failed to seed room types/rooms on startup:', err);
+      console.error('Failed to migrate legacy room types:', err);
+    }
+  }
+
+  async function seedRoomTypesAndRooms() {
+    try {
+      const existingTypes = await db.select().from(roomTypes);
+      if (existingTypes.length === 0) {
+        console.log('No spa packages found in database. Seeding packages...');
+        await db.insert(roomTypes).values(SPA_CATALOG.map(c => ({
+          slug: c.slug,
+          name: c.name,
+          baseRate: c.baseRate,
+          capacity: c.capacity,
+        })));
+      }
+
+      // Whether the packages were just created or already existed, make sure every
+      // branch actually has treatment rooms behind them. The admin's own room count
+      // (edited in the Spa Packages tab) wins over the built-in default, so a
+      // restart never silently undoes their number.
+      const [cmsRow] = await db.select().from(siteContent).where(eq(siteContent.key, 'accommodations')).limit(1);
+      let cmsPackages: any[] = [];
+      try {
+        if (cmsRow?.value) {
+          const parsed = JSON.parse(cmsRow.value);
+          if (Array.isArray(parsed)) cmsPackages = parsed;
+        }
+      } catch { /* fall back to the catalog defaults */ }
+
+      for (const c of SPA_CATALOG) {
+        const configured = cmsPackages.find(a => a?.id === c.slug)?.quantity;
+        const desired = Number.isFinite(Number(configured)) && Number(configured) > 0
+          ? Number(configured)
+          : c.quantity;
+        const result = await reconcileRoomInventory(c.slug, desired);
+        if (result.ok && result.added) {
+          console.log(`✓ Created ${result.added} treatment room(s) for ${c.name} across all branches.`);
+        }
+      }
+    } catch (err) {
+      console.error('Failed to seed spa packages/rooms on startup:', err);
+    }
+  }
+
+  // The add-ons catalog drives the extras step of the booking flow. An empty table
+  // silently dropped every selected extra, so seed it once.
+  async function seedAddOnsIfNeeded() {
+    try {
+      const existing = await db.select().from(addOns).limit(1);
+      if (existing.length > 0) return;
+      await db.insert(addOns).values(ADD_ONS.map(a => ({
+        name: a.name,
+        description: a.description,
+        price: a.price.toFixed(2),
+      }))).onConflictDoNothing();
+      console.log('✓ Seeded the spa add-ons catalog.');
+    } catch (err) {
+      console.error('Failed to seed add-ons:', err);
+    }
+  }
+
+  // Replace campsite-era CMS copy with the spa defaults, once. Guarded by a marker
+  // row so an admin's later edits are never clobbered on the next restart.
+  const CONTENT_VERSION = 'spa-1';
+  async function migrateSiteContentToSpa() {
+    try {
+      const rows = await db.select().from(siteContent);
+      const marker = rows.find(r => r.key === 'content_version');
+      if (marker?.value === CONTENT_VERSION) return;
+
+      const legacy = /luxury-cabin|deluxe-glamping|standard-pitching|Valleypoint|campsite|glamping/i;
+      const hasLegacyCopy = rows.some(
+        r => ['hero', 'about', 'accommodations', 'services', 'faqs'].includes(r.key) && legacy.test(r.value)
+      );
+
+      const upsert = async (key: string, value: any) => {
+        const valueStr = typeof value === 'string' ? value : JSON.stringify(value);
+        await db.insert(siteContent)
+          .values({ key, value: valueStr, updatedAt: new Date() })
+          .onConflictDoUpdate({ target: siteContent.key, set: { value: valueStr, updatedAt: new Date() } });
+      };
+
+      if (hasLegacyCopy) {
+        await upsert('hero', DEFAULT_HERO);
+        await upsert('about', DEFAULT_ABOUT);
+        await upsert('accommodations', SPA_PACKAGES);
+        await upsert('services', SERVICES);
+        await upsert('faqs', FAQS);
+        console.log('✓ Replaced legacy campsite content with the Spa de Iloko defaults.');
+      }
+
+      // The booking portal cannot render without a branch list, so guarantee one.
+      if (!rows.some(r => r.key === 'branches')) await upsert('branches', BRANCHES);
+
+      await upsert('content_version', CONTENT_VERSION);
+    } catch (err) {
+      console.error('Failed to migrate site content:', err);
     }
   }
 
@@ -411,7 +590,7 @@ async function startServer() {
       const hashRecord = await db.select().from(adminSettings).where(eq(adminSettings.key, 'admin_password_hash')).limit(1);
       if (hashRecord.length > 0) return;
 
-      const email = process.env.ADMIN_EMAIL || 'admin@valleypoint.local';
+      const email = process.env.ADMIN_EMAIL || 'admin@spadeiloko.local';
       const provided = process.env.ADMIN_INITIAL_PASSWORD;
       const password = provided || crypto.randomBytes(12).toString('base64url');
       const hash = await bcrypt.hash(password, 12);
@@ -460,7 +639,11 @@ async function startServer() {
     }
   }
 
+  await ensureBranchColumn();
+  await migrateLegacyRoomTypes();
+  await migrateSiteContentToSpa();
   await seedRoomTypesAndRooms();
+  await seedAddOnsIfNeeded();
   await seedDefaultAdminIfNeeded();
   await seedPaymentInstructionsIfNeeded();
   await ensureAnalyticsTables();
@@ -566,6 +749,7 @@ async function startServer() {
         roomId: rooms.id,
         roomNumber: rooms.roomNumber,
         roomTypeId: rooms.roomTypeId,
+        branch: rooms.branch,
         roomTypeSlug: roomTypes.slug,
         roomTypeCapacity: roomTypes.capacity,
         checkInDate: bookingRooms.checkInDate,
@@ -611,6 +795,7 @@ async function startServer() {
         return {
           id: String(b.bookingId),
           reference: b.reference,
+          branchId: b.branch || '',
           customerName: `${b.firstName} ${b.lastName}`.trim(),
           customerEmail: b.email,
           customerPhone: b.phone || '',
@@ -637,7 +822,8 @@ async function startServer() {
   app.get('/api/availability', async (req, res) => {
     try {
       const rows = await db.select({
-        roomTypeSlug: roomTypes.slug, // NEW — join added
+        roomTypeSlug: roomTypes.slug,
+        branch: rooms.branch,   // the calendar counts occupancy per branch
         roomId: bookingRooms.roomId,
         checkIn: bookingRooms.checkInDate,
         checkOut: bookingRooms.checkOutDate,
@@ -778,6 +964,7 @@ async function startServer() {
         phone: guests.phoneNumber,
         roomTypeName: roomTypes.name,
         roomTypeSlug: roomTypes.slug,
+        branch: rooms.branch,
         checkInDate: bookingRooms.checkInDate,
         checkOutDate: bookingRooms.checkOutDate,
         guestCount: bookingRooms.guestCount,
@@ -824,6 +1011,8 @@ async function startServer() {
         customerPhone: b.phone || '',
         accommodationName: b.roomTypeName,
         accommodationSlug: b.roomTypeSlug,
+        branchId: b.branch || '',
+        branchName: (await getBranches()).find(x => x.id === b.branch)?.name || '',
         checkIn: b.checkInDate,
         checkOut: b.checkOutDate,
         guestsCount: b.guestCount,
@@ -861,6 +1050,16 @@ async function startServer() {
     } catch (error) {
       console.error('Failed to release booking:', error);
       res.status(500).json({ error: 'Failed to release reservation.' });
+    }
+  });
+
+  // Public branch directory — the booking portal's first step reads this.
+  app.get('/api/branches', async (_req, res) => {
+    try {
+      res.json(await getBranches());
+    } catch (error) {
+      console.error('Failed to get branches:', error);
+      res.status(500).json({ error: 'Failed to load branches.' });
     }
   });
 
@@ -913,9 +1112,9 @@ async function startServer() {
         let corrected = false;
         const adjusted = value.map((acc: any) => {
           const r = inventory.find(i => i.slug === String(acc?.id));
-          if (r?.ok) {
-            const actual = r.current + (r.added || 0) - (r.removed || 0);
-            if (Number(acc.quantity) !== actual) { corrected = true; return { ...acc, quantity: actual }; }
+          if (r?.ok && Number(acc.quantity) !== r.actual) {
+            corrected = true;
+            return { ...acc, quantity: r.actual };
           }
           return acc;
         });
@@ -984,115 +1183,117 @@ async function startServer() {
     const rts = await db.select().from(roomTypes);
     const catalog = await db.select().from(addOns);
     const pay = await getPaymentInstructions();
-    return { c, rts, catalog, pay };
+    const branches = await getBranches();
+    return { c, rts, catalog, pay, branches };
   }
 
   const BOT_STOPWORDS = new Set(
     'a an the is are am was were be been do does did i you we they it he she to of for in on at and or my our your how what when where which who whats can could would should will want know about me please tell give there their has have had with as this that these those'.split(' ')
   );
-  // Fold common phrasings so "wi-fi", "internet", "dog" etc. all match the right FAQ.
+  // Fold common phrasings so "massages", "therapist", "appointment" etc. all land
+  // on the right answer regardless of how the visitor words it.
   const botNorm = (s: string) =>
     s.toLowerCase()
-      .replace(/wi[\s-]?fi/g, 'wifi')
-      .replace(/\b(internet|connection|starlink)\b/g, 'wifi')
-      .replace(/\b(dogs?|cats?|puppy|puppies|kitten|animals?|fur\s?bab(y|ies))\b/g, 'pet')
-      .replace(/\b(climate|weather|temperature|chilly|freezing|forecast)\b/g, 'cold');
+      .replace(/\b(massages|massaging)\b/g, 'massage')
+      .replace(/\b(therapists?|masseuse|masseur|attendants?)\b/g, 'therapist')
+      .replace(/\b(appointments?|reservations?|slots?|schedules?)\b/g, 'booking')
+      .replace(/\b(branches|locations?|outlets?|stores?|shops?)\b/g, 'branch')
+      .replace(/\b(treatments?|services?|sessions?)\b/g, 'treatment');
   const botTokens = (s: string) =>
     botNorm(s).replace(/[^a-z0-9\s]/g, ' ').split(/\s+/).filter(w => w && !BOT_STOPWORDS.has(w));
-  // `q` is space-padded & single-spaced. Single-word keywords match whole words only
-  // (so "eat" doesn't fire on "w-eat-her"); multi-word keywords match as a phrase.
+  // `q` is space-padded & single-spaced. Single-word keywords match whole words only;
+  // multi-word keywords match as a phrase.
   const qHas = (q: string, words: string[]) =>
     words.some(w => (w.includes(' ') ? q.includes(w) : q.includes(` ${w} `)));
   const bp = (n: any) => `₱${Number(n || 0).toLocaleString()}`;
 
-  function answerRooms(k: any, q: string): string | null {
-    if (!qHas(q, ['price', 'prices', 'cost', 'costs', 'rate', 'rates', 'how much', 'room', 'rooms', 'cabin', 'tent', 'glamping', 'glamp', 'pitch', 'pitching', 'accommodation', 'accommodations', 'stay', 'night', 'nightly', 'per night', 'sleep', 'sleeps', 'capacity', 'pax', 'guest', 'guests', 'cheapest', 'budget', 'expensive', 'lodging'])) return null;
+  function answerPackages(k: any, q: string): string | null {
+    if (!qHas(q, ['price', 'prices', 'cost', 'costs', 'rate', 'rates', 'how much', 'package', 'packages', 'room', 'rooms', 'suite', 'hilot', 'massage', 'treatment', 'capacity', 'pax', 'couple', 'cheapest', 'budget', 'expensive', 'menu'])) return null;
 
     const rts: any[] = k.rts || [];
-    // Prefer the prices/details the admin edits in the Accommodations tab (siteContent);
-    // fall back to the room_types table if the CMS hasn't been filled in.
-    const cmsAcc: any[] = Array.isArray(k.c.accommodations)
+    // Prefer the prices the admin edits in the Spa Packages tab (siteContent);
+    // fall back to the room_types table if the CMS has not been filled in.
+    const cmsPkgs: any[] = Array.isArray(k.c.accommodations)
       ? k.c.accommodations.filter((a: any) => a?.name && Number(a.price) > 0)
       : [];
-    let rooms: any[] = cmsAcc.length
-      ? cmsAcc.map((a: any) => ({
+    const list: any[] = cmsPkgs.length
+      ? cmsPkgs.map((a: any) => ({
           name: a.name,
           price: Number(a.price),
           capacity: Number(a.capacity) || Number(rts.find(r => r.slug === a.id)?.capacity) || 0,
           features: Array.isArray(a.features) ? a.features : [],
         }))
       : rts.map(r => ({ name: r.name, price: Number(r.baseRate), capacity: Number(r.capacity), features: [] as string[] }));
-    if (!rooms.length) return null;
-
-    let list = rooms;
-    if (q.includes('cabin') || q.includes('loft') || q.includes('glass')) list = rooms.filter(r => /cabin/i.test(r.name));
-    else if (q.includes('glamp') || q.includes('dome') || q.includes('suite')) list = rooms.filter(r => /glamp/i.test(r.name));
-    else if (q.includes('pitch') || q.includes('own tent') || q.includes('campground')) list = rooms.filter(r => /pitch|adventure/i.test(r.name));
-    if (!list.length) list = rooms;
+    if (!list.length) return null;
 
     const fmt = (r: any) => {
       const feat = r.features.length ? ` Includes: ${r.features.slice(0, 4).join(', ')}.` : '';
       const cap = r.capacity ? `, good for up to ${r.capacity} guest${r.capacity === 1 ? '' : 's'}` : '';
-      return `• ${r.name} — ${bp(r.price)} per night${cap}.${feat}`;
+      return `• ${r.name} — ${bp(r.price)} per session${cap}.${feat}`;
     };
 
-    if (qHas(q, ['cheap', 'cheapest', 'budget', 'lowest', 'affordable', 'least expensive']) && rooms.length > 1) {
-      const min = [...rooms].sort((a, b) => a.price - b.price)[0];
-      return `Our most affordable option is the ${min.name} at ${bp(min.price)} per night. All options:\n${rooms.map(fmt).join('\n')}\n\nRates are per night — the total depends on how many nights you stay.`;
+    if (qHas(q, ['cheap', 'cheapest', 'budget', 'lowest', 'affordable', 'least expensive']) && list.length > 1) {
+      const min = [...list].sort((a, b) => a.price - b.price)[0];
+      return `Our most affordable option is the ${min.name} at ${bp(min.price)} per session. All options:\n${list.map(fmt).join('\n')}\n\nRates are per session and apply at every branch.`;
     }
-    const head = list.length === 1 ? 'Here are the details:' : 'Here are our accommodations and current rates:';
-    return `${head}\n${list.map(fmt).join('\n')}\n\nRates are per night — the total depends on how many nights you stay.`;
+    return `Here are our spa packages and current rates:\n${list.map(fmt).join('\n')}\n\nRates are per session and apply at every branch.`;
+  }
+
+  function answerBranches(k: any, q: string): string | null {
+    if (!qHas(q, ['branch', 'where', 'located', 'address', 'direction', 'directions', 'near', 'nearest', 'map', 'city', 'baguio', 'laoag', 'vigan', 'dagupan', 'urdaneta', 'la union', 'san fernando', 'open', 'opening', 'hours', 'close', 'closing', 'contact', 'phone', 'number'])) return null;
+    const branches: any[] = Array.isArray(k.c.branches) && k.c.branches.length ? k.c.branches : (k.branches || []);
+    if (!branches.length) return null;
+
+    // If the visitor named one city, answer about that branch only.
+    const named = branches.find((b: any) =>
+      [b.city, b.name].filter(Boolean).some((label: string) => q.includes(String(label).toLowerCase()))
+    );
+    if (named) {
+      return [
+        named.name,
+        named.address,
+        named.phone ? `Phone: ${named.phone}` : '',
+        named.hours ? `Open: ${named.hours}` : '',
+      ].filter(Boolean).join('\n');
+    }
+
+    const fmt = (b: any) => `• ${b.name} — ${b.address}${b.phone ? ` • ${b.phone}` : ''}${b.hours ? ` • ${b.hours}` : ''}`;
+    return `We have ${branches.length} branches:\n${branches.map(fmt).join('\n')}\n\nPick your branch in the booking portal and the calendar will show only that location's availability.`;
   }
 
   function answerAddOns(k: any, q: string): string | null {
-    if (!qHas(q, ['add-on', 'addon', 'add on', 'add-ons', 'addons', 'extras', 'firewood', 'marshmallow', 'breakfast platter'])) return null;
+    if (!qHas(q, ['add-on', 'addon', 'add on', 'add-ons', 'addons', 'extras', 'upgrade', 'hot stone', 'foot soak', 'aromatherapy', 'scrub'])) return null;
     const cat: any[] = k.catalog || [];
-    if (!cat.length) return `Optional extras (like bonfire kits or breakfast platters) can be arranged. Any available add-ons will show up during booking, or you can ask our staff.`;
-    return `Add-ons you can include with your booking:\n${cat.map(a => `• ${a.name} — ${bp(a.price)}${a.description ? `: ${a.description}` : ''}`).join('\n')}`;
+    if (!cat.length) return `Optional extras such as a hot stone upgrade or a herbal foot soak can be added to any treatment. Available extras appear during booking, or you can ask our front desk.`;
+    return `Extras you can add to your booking:\n${cat.map(a => `• ${a.name} — ${bp(a.price)}${a.description ? `: ${a.description}` : ''}`).join('\n')}`;
   }
 
   function answerServices(k: any, q: string): string | null {
-    if (!qHas(q, ['activity', 'activities', 'things to do', 'what to do', 'do there', 'service', 'services', 'cafe', 'coffee', 'restaurant', 'food', 'eat', 'dining', 'archery', 'darts', 'hiking', 'amenities', 'offered', 'offer'])) return null;
+    if (!qHas(q, ['treatment', 'offer', 'offered', 'facial', 'facials', 'nails', 'manicure', 'pedicure', 'body scrub', 'amenities', 'included', 'what do you'])) return null;
     const services: any[] = Array.isArray(k.c.services) ? k.c.services.filter((s: any) => s?.name) : [];
     if (!services.length) return null;
-    return `Here's what Valleypoint offers:\n${services.map((s: any) => `• ${s.name}${s.price ? ` (${s.price})` : ''} — ${s.description || ''}`.trim()).join('\n')}`;
+    return `Here's what Spa de Iloko offers:\n${services.map((s: any) => `• ${s.name}${s.price ? ` (${s.price})` : ''} — ${s.description || ''}`.trim()).join('\n')}`;
   }
 
   function answerPayment(k: any, q: string): string | null {
-    if (!qHas(q, ['pay', 'payment', 'payments', 'gcash', 'maya', 'paymaya', 'bank', 'transfer', 'deposit', 'downpayment', 'down payment', 'reserve', 'book', 'booking', 'how to book', 'confirm', 'confirmed', 'proof', 'receipt', 'mode of payment'])) return null;
+    if (!qHas(q, ['pay', 'payment', 'payments', 'gcash', 'maya', 'paymaya', 'bank', 'transfer', 'deposit', 'downpayment', 'down payment', 'reserve', 'book', 'booking', 'how to book', 'confirm', 'confirmed', 'proof', 'receipt', 'mode of payment', 'walk in', 'walk-in'])) return null;
     const pay = k.pay;
     const accts = (pay.accounts || []).filter((a: any) => a.method || a.accountNumber);
     const acctLines = accts.length
       ? accts.map((a: any) => `   • ${a.method}: ${a.accountName || ''}${a.accountNumber ? ' — ' + a.accountNumber : ''}`).join('\n')
       : '   • Payment account details appear on your reservation ticket.';
     return `Here's how booking and payment work:\n` +
-      `1. Choose your dates and room on this site and fill in your details.\n` +
+      `1. Choose your branch, package and date on this site, then fill in your details.\n` +
       `2. You'll get a reservation ticket showing the amount to pay (the full amount).\n` +
       `3. Send payment via any of these:\n${acctLines}\n` +
       `4. Email your proof of payment to ${pay.proofEmail} with your reference code.\n` +
-      `Your reservation is confirmed once our staff verify the payment (usually within 24 hours).`;
-  }
-
-  function answerLocation(k: any, q: string): string | null {
-    if (!qHas(q, ['where', 'location', 'located', 'address', 'direction', 'directions', 'get to', 'getting there', 'how to get', 'from baguio', 'baguio', 'commute', 'far', 'map', 'near'])) return null;
-    const a = k.c.about || {};
-    const faqs: any[] = Array.isArray(k.c.faqs) ? k.c.faqs : [];
-    const dirFaq = faqs.find((f: any) => /get to|reach|directions?|from baguio|how do we get/i.test(f.question || ''));
-    const bits: string[] = ['Valleypoint Campsite is in Tuba, Benguet — about 15 minutes from downtown Baguio City.'];
-    if (dirFaq?.answer) {
-      bits.push(dirFaq.answer);
-    } else if (a.desc1) {
-      bits.push(a.desc1);
-    }
-    if (a.elevation && !bits.join(' ').includes(a.elevation)) bits.push(`Elevation: ${a.elevation}.`);
-    if (a.latitude || a.longitude) bits.push(`Coordinates: ${[a.latitude, a.longitude].filter(Boolean).join(', ')}.`);
-    return bits.join(' ');
+      `Your appointment is confirmed once our staff verify the payment (usually within 24 hours).`;
   }
 
   function answerAbout(k: any, q: string): string | null {
-    if (!qHas(q, ['what is valleypoint', 'about valleypoint', 'tell me', 'who are you', 'what are you'])) return null;
+    if (!qHas(q, ['what is spa de iloko', 'about spa de iloko', 'tell me', 'who are you', 'what are you'])) return null;
     const h = k.c.hero || {}; const a = k.c.about || {};
-    return h.description || a.desc1 || 'Valleypoint Campsite is a premium glamping and camping site in Tuba, Benguet, offering glass-front cabins, glamping tents, and pitching sites.';
+    return h.description || a.desc1 || 'Spa de Iloko is a wellness spa offering traditional Ilocano hilot and modern bodywork across six branches in Northern Luzon.';
   }
 
   function answerFromFaqs(k: any, q: string): string | null {
@@ -1111,22 +1312,22 @@ async function startServer() {
       }
       if (score > bestScore) { bestScore = score; best = f; }
     }
-    // 1-2 word questions ("wifi?", "pets?") only need one solid hit; longer ones need more.
+    // 1-2 word questions ("parking?", "hours?") only need one solid hit; longer ones need more.
     const threshold = qt.length <= 2 ? 2 : 3;
     return best && bestScore >= threshold ? String(best.answer) : null;
   }
 
   function botReply(k: any, message: string): string {
     const lower = message.toLowerCase();
-    const q = ' ' + lower.replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim() + ' ';
+    const q = ' ' + botNorm(lower).replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim() + ' ';
 
     if (/^\s*(hi|hello|hey|yo|good (morning|afternoon|evening)|kumusta|kamusta)\b/.test(lower)) {
-      return "Hi! I can help with room rates, what's included, activities, how to book and pay, and directions. What would you like to know?";
+      return "Hi! I can help with our branches, package rates, what each treatment includes, and how to book and pay. What would you like to know?";
     }
-    if (qHas(q, ['thank', 'thanks', 'salamat'])) return "You're welcome! Anything else about Valleypoint?";
+    if (qHas(q, ['thank', 'thanks', 'salamat'])) return "You're welcome! Anything else about Spa de Iloko?";
 
     const blocks: string[] = [];
-    for (const fn of [answerRooms, answerAddOns, answerServices, answerPayment, answerLocation, answerAbout]) {
+    for (const fn of [answerPackages, answerBranches, answerAddOns, answerServices, answerPayment, answerAbout]) {
       const r = fn(k, q);
       if (r) blocks.push(r);
     }
@@ -1135,7 +1336,7 @@ async function startServer() {
     const faq = answerFromFaqs(k, q);
     if (faq) return faq;
 
-    return "I'm not sure about that one. I can help with:\n• Room options and current rates\n• What's included and activities offered\n• How to book and pay\n• Directions from Baguio\n\nTry rewording your question, or contact Valleypoint Campsite directly for anything else.";
+    return "I'm not sure about that one. I can help with:\n• Our branches, addresses and opening hours\n• Spa packages and current rates\n• What each treatment includes\n• How to book and pay\n\nTry rewording your question, or contact your nearest Spa de Iloko branch for anything else.";
   }
 
   app.post('/api/faq-chat', async (req, res) => {
@@ -1147,7 +1348,7 @@ async function startServer() {
       res.json({ reply: botReply(knowledge, message) });
     } catch (error) {
       console.error('FAQ bot failed:', error);
-      res.json({ reply: "Sorry, I'm having trouble right now. Please try again shortly, or contact Valleypoint Campsite directly." });
+      res.json({ reply: "Sorry, I'm having trouble right now. Please try again shortly, or contact your nearest Spa de Iloko branch." });
     }
   });
 
@@ -1234,6 +1435,7 @@ async function startServer() {
       customerEmail,
       customerPhone,
       customerAddress,
+      branchId,
       checkIn,
       checkOut,
       accommodationId,
@@ -1245,11 +1447,20 @@ async function startServer() {
     if (!customerName || !customerEmail || !checkIn || !checkOut || !accommodationId) {
       return res.status(400).json({ error: 'Missing required booking parameters.' });
     }
+    if (!branchId) {
+      return res.status(400).json({ error: 'Please choose which branch you would like to book.' });
+    }
 
     try {
+      const branchList = await getBranches();
+      const branch = branchList.find(b => b.id === String(branchId));
+      if (!branch) {
+        return res.status(400).json({ error: 'That branch is not one of our locations.' });
+      }
+
       const rtObj = await getRoomTypeBySlug(accommodationId);
       if (!rtObj) {
-        return res.status(400).json({ error: 'Invalid accommodation selection.' });
+        return res.status(400).json({ error: 'Invalid spa package selection.' });
       }
       const roomTypeId = rtObj.id;
       // Always exactly 6 chars from an unambiguous alphabet (no 0/O/1/I/L).
@@ -1259,7 +1470,7 @@ async function startServer() {
         const alphabet = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
         let code = '';
         for (let i = 0; i < 6; i++) code += alphabet[crypto.randomInt(alphabet.length)];
-        return 'VP-' + code;
+        return 'SDI-' + code;
       };
       let reference = makeReference();
       for (let attempt = 0; attempt < 5; attempt++) {
@@ -1271,11 +1482,14 @@ async function startServer() {
 
       // Begin Transaction for atomic reservation & row-lock protection
       const result = await db.transaction(async (tx) => {
-        // 1. Row lock rooms of this type to block concurrent transactions
-        await tx.execute(sql`SELECT id FROM "rooms" WHERE "room_type_id" = ${roomTypeId} FOR UPDATE;`);
+        // 1. Row lock this branch's rooms of this type to block concurrent transactions
+        await tx.execute(sql`SELECT id FROM "rooms" WHERE "room_type_id" = ${roomTypeId} AND "branch" = ${branch.id} FOR UPDATE;`);
 
-        // 2. Query available rooms of this type
-        const roomsOfType = await tx.select().from(rooms).where(eq(rooms.roomTypeId, roomTypeId));
+        // 2. Query this branch's rooms of this type. A room at another branch can
+        //    never satisfy this booking, so branch is part of the filter, not a
+        //    label applied afterwards.
+        const roomsOfType = await tx.select().from(rooms)
+          .where(and(eq(rooms.roomTypeId, roomTypeId), eq(rooms.branch, branch.id)));
 
         // 3. Check overlaps
         const overlapping = await tx.select({
@@ -1304,14 +1518,16 @@ async function startServer() {
 
         const assignedRoom = available[0];
 
-        // 4. Fetch the direct room rate from DB
+        // 4. Fetch the direct session rate from DB
         const rt = await tx.select().from(roomTypes).where(eq(roomTypes.id, roomTypeId)).limit(1);
         if (rt.length === 0) {
           throw new Error('INVALID_ROOM_TYPE');
         }
         const rate = Number(rt[0].baseRate);
 
-        // 5. Calculate nights
+        // 5. Sessions held. An appointment holds its treatment room for a single
+        //    day, so this is 1 for every booking the portal creates; the arithmetic
+        //    is kept general in case a multi-day retreat package is ever added.
         const diffTime = Math.abs(new Date(checkOut).getTime() - new Date(checkIn).getTime());
         const totalNights = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) || 1;
         const roomCost = rate * totalNights;
@@ -1411,6 +1627,7 @@ async function startServer() {
           reference,
           grandTotal,
           roomName: rt[0].name,
+          roomNumber: assignedRoom.roomNumber,
           totalNights,
           addOnsList,
           status: initialBookingStatus,
@@ -1435,6 +1652,10 @@ async function startServer() {
         customerPhone: customerPhone || '',
         accommodationName: result.roomName,
         accommodationSlug: accommodationId,
+        branchId: branch.id,
+        branchName: branch.name,
+        branchAddress: branch.address,
+        branchPhone: branch.phone,
         checkIn,
         checkOut,
         nights: result.totalNights,
@@ -1454,10 +1675,10 @@ async function startServer() {
 
     } catch (error: any) {
       if (error.message === 'CONCURRENCY_CONFLICT') {
-        return res.status(409).json({ error: 'No available plots of this type for the selected dates.' });
+        return res.status(409).json({ error: 'That branch has no treatment room of this type free on the selected date. Please pick another date or another branch.' });
       }
       if (error.message === 'INVALID_ROOM_TYPE') {
-        return res.status(400).json({ error: 'Invalid accommodation selection.' });
+        return res.status(400).json({ error: 'Invalid spa package selection.' });
       }
       console.error('Failed to create booking:', error);
       res.status(500).json({ error: 'An error occurred while saving your booking.' });
@@ -1692,7 +1913,7 @@ async function startServer() {
   app.listen(PORT, "0.0.0.0", () => {
     // Bind on 0.0.0.0 (all interfaces) but print localhost — 0.0.0.0 is not a browsable address.
     console.log(`
-  ✓ Valleypoint site ready  (${IS_PRODUCTION ? 'production' : 'development'})  ->  http://localhost:${PORT}
+  ✓ Spa de Iloko site ready (${IS_PRODUCTION ? 'production' : 'development'})  ->  http://localhost:${PORT}
 `);
   });
 }

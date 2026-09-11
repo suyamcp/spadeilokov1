@@ -1,243 +1,247 @@
-import { Accommodation, AddOn, MenuItem, FAQ, Service } from './types';
+import { SpaPackage, AddOn, FAQ, Service, Branch } from './types';
 
-export const ACCOMMODATIONS: Accommodation[] = [
+/**
+ * The Spa de Iloko branch network.
+ *
+ * These ids are stable keys: every treatment room in the database is stamped
+ * with one, and the availability calendar counts occupancy per branch. Renaming
+ * a branch in the Admin Panel changes only the label -- never the id -- so
+ * existing bookings keep pointing at the right location.
+ *
+ * `code` is the two-letter tag used inside generated room numbers (SG-BG-01).
+ */
+export const BRANCHES: Branch[] = [
   {
-    id: 'luxury-cabin',
-    name: 'Glass-Front Luxury Cabin',
-    type: 'luxury_cabin',
-    description: 'Enclosed wooden loft cabin featuring massive floor-to-ceiling panoramic glass windows facing the misty valley. Warm wooden frame, orthopaedic queen bed, high-speed Wi-Fi, private heated washroom, and a personal viewing terrace.',
-    capacity: 2,
-    price: 4999,
-    features: [
-      'Queen Bed & Premium Linens',
-      'En-suite Heated Bathroom',
-      'Floor-to-Ceiling Valley View',
-      'Complimentary Cordillera Breakfast',
-      'Private Outdoor Veranda',
-      'Power Outlets & USB Ports',
-      'In-room Coffee & Tea Station'
-    ],
-    imageUrl: 'https://images.unsplash.com/photo-1510798831971-661eb04b3739?auto=format&fit=crop&q=80&w=1000',
-    quantity: 4
+    id: 'baguio',
+    name: 'Baguio City Branch',
+    city: 'Baguio City',
+    address: 'Session Road, Baguio City, Benguet',
+    phone: '+63 917 000 0001',
+    hours: '10:00 AM — 10:00 PM daily',
   },
   {
-    id: 'deluxe-glamping',
-    name: 'Deluxe Glamping Suite Tent',
-    type: 'glamping_tent',
-    description: 'Experience the wilderness of Tuba with supreme comfort. This spacious dome tent comes with double orthopaedic beds, cozy down pillows, thermal rugs, personal electricity panels, campfire firepit access, and stunning sunrise view.',
-    capacity: 4,
-    price: 3200,
-    features: [
-      '2 Double Beds (Up to 4 Pax)',
-      'Heated Electric Blankets',
-      'Cozy Warm Lighting & Fan',
-      'Dedicated Bonfire Access',
-      'Shared Luxury Hot Showers',
-      'Charging Ports',
-      'Morning Sea of Clouds View'
-    ],
-    imageUrl: 'https://images.unsplash.com/photo-1533873984035-25970ab07461?auto=format&fit=crop&q=80&w=1000',
-    quantity: 8
+    id: 'laoag',
+    name: 'Laoag City Branch',
+    city: 'Laoag City',
+    address: 'J.P. Rizal Street, Laoag City, Ilocos Norte',
+    phone: '+63 917 000 0002',
+    hours: '10:00 AM — 10:00 PM daily',
   },
   {
-    id: 'standard-pitching',
-    name: 'Premium Adventure Pitching Site',
-    type: 'standard_tent',
-    description: 'For authentic outdoor campers. Includes a perfectly manicured grass campsite terrace in the pines, gear setups, thermal sleeping bags, high-density pads, and access to all campsite amenities like showers, archery, and Cafe.',
+    id: 'vigan',
+    name: 'Vigan City Branch',
+    city: 'Vigan City',
+    address: 'Quezon Avenue, Vigan City, Ilocos Sur',
+    phone: '+63 917 000 0003',
+    hours: '10:00 AM — 10:00 PM daily',
+  },
+  {
+    id: 'san-fernando',
+    name: 'San Fernando Branch',
+    city: 'San Fernando',
+    address: 'Quezon Avenue, San Fernando, La Union',
+    phone: '+63 917 000 0004',
+    hours: '10:00 AM — 10:00 PM daily',
+  },
+  {
+    id: 'dagupan',
+    name: 'Dagupan City Branch',
+    city: 'Dagupan City',
+    address: 'A.B. Fernandez Avenue, Dagupan City, Pangasinan',
+    phone: '+63 917 000 0005',
+    hours: '10:00 AM — 10:00 PM daily',
+  },
+  {
+    id: 'urdaneta',
+    name: 'Urdaneta City Branch',
+    city: 'Urdaneta City',
+    address: 'Alexander Street, Urdaneta City, Pangasinan',
+    phone: '+63 917 000 0006',
+    hours: '10:00 AM — 10:00 PM daily',
+  },
+];
+
+/** Two-letter tags used when generating treatment-room numbers per branch. */
+export const BRANCH_CODES: Record<string, string> = {
+  baguio: 'BG',
+  laoag: 'LA',
+  vigan: 'VG',
+  'san-fernando': 'SF',
+  dagupan: 'DG',
+  urdaneta: 'UR',
+};
+
+export const getBranchById = (id: string): Branch | undefined =>
+  BRANCHES.find(b => b.id === id);
+
+export const SPA_PACKAGES: SpaPackage[] = [
+  {
+    id: 'signature-suite',
+    name: "Signature Couple's Suite",
+    type: 'signature_suite',
+    description: 'Our most private room, laid out for two side-by-side beds under warm rattan lighting. A full ninety-minute signature massage each, with a herbal foot soak to open and hot ginger tea to close.',
     capacity: 2,
-    price: 1200,
+    price: 2499,
     features: [
-      'Premium High-Wind Tent Provided',
-      '2 Sleeping Bags & Insulated Mats',
-      'Free Access to Archery & Darts',
-      'Shared Bathroom with Rain Shower',
-      'Campsite Bonfire Circle Pass',
-      'Outdoor Picnic Table Access',
-      'Bring Your Own Tent option also'
+      '90-Minute Signature Massage for Two',
+      'Private En-suite Shower Room',
+      'Herbal Foot Soak on Arrival',
+      'Warm Bamboo & Aromatherapy Oils',
+      'Hot Ginger Tea & Light Snack',
+      'Robes, Slippers & Fresh Linens',
+      'Lockers & Personal Attendant',
     ],
-    imageUrl: 'https://images.unsplash.com/photo-1504280390367-361c6d9f38f4?auto=format&fit=crop&q=80&w=1000',
-    quantity: 15
-  }
+    imageUrl: 'https://images.unsplash.com/photo-1540555700478-4be289fbecef?auto=format&fit=crop&q=80&w=1000',
+    quantity: 2,
+  },
+  {
+    id: 'deluxe-room',
+    name: 'Deluxe Treatment Room',
+    type: 'deluxe_room',
+    description: 'A curtained private room for one or two guests. Choose a Swedish, Shiatsu, or aromatherapy full-body massage, finished with a warm back scrub and a hot towel wrap.',
+    capacity: 2,
+    price: 1499,
+    features: [
+      '60-Minute Full-Body Massage',
+      'Swedish, Shiatsu or Aromatherapy',
+      'Warm Back Scrub & Hot Towels',
+      'Private Curtained Room',
+      'Complimentary Herbal Tea',
+      'Robes & Fresh Linens',
+      'Air-conditioned Quiet Floor',
+    ],
+    imageUrl: 'https://images.unsplash.com/photo-1600334089648-b0d9d3028eb2?auto=format&fit=crop&q=80&w=1000',
+    quantity: 4,
+  },
+  {
+    id: 'classic-room',
+    name: 'Classic Hilot Room',
+    type: 'classic_room',
+    description: 'Traditional Ilocano hilot on a single bed in our shared quiet lounge. Warm coconut oil, firm pressure, and the same trained therapists — the everyday reset our regulars come back for.',
+    capacity: 1,
+    price: 799,
+    features: [
+      '60-Minute Traditional Hilot',
+      'Warm Virgin Coconut Oil',
+      'Shared Quiet Lounge',
+      'Complimentary Herbal Tea',
+      'Fresh Linens Every Session',
+      'Lockers Provided',
+      'Walk-ins Welcome When Free',
+    ],
+    imageUrl: 'https://images.unsplash.com/photo-1544161515-4ab6ce6db874?auto=format&fit=crop&q=80&w=1000',
+    quantity: 6,
+  },
 ];
 
 export const ADD_ONS: AddOn[] = [
   {
-    id: 'bonfire-kit',
-    name: 'Private Bonfire Log & Marshmallow Kit',
-    price: 450,
-    description: 'A bundle of dry pine firewood, marshmallow skewers, chocolate bars, and graham crackers for a traditional smores night.',
-    icon: 'Flame'
-  },
-  {
-    id: 'archery-pass',
-    name: 'Unlimited Archery & Darts Pass',
-    price: 250,
-    description: 'Full equipment rental and safety coordinator supervision on our high-slope target range fields.',
-    icon: 'Target'
-  },
-  {
-    id: 'cordillera-breakfast',
-    name: 'Cordillera Pork Longganisa Breakfast Platter',
+    id: 'hot-stone',
+    name: 'Hot Stone Upgrade',
     price: 350,
-    description: 'Gourmet garlic rice, locally spiced longganisa, fried egg, mountain tomatoes, and a mug of Benguet dark brew.',
-    icon: 'Coffee'
+    description: 'Heated basalt stones worked along the back and shoulders to loosen deep tension before the massage proper begins.',
+    icon: 'Flame',
   },
   {
-    id: 'trekking-guide',
-    name: 'Guided Pine Valley Trek (Sunrise)',
-    price: 600,
-    description: 'A morning guided hike up the mountain ridges of Tuba to catch the magnificent sea-of-clouds sunrise.',
-    icon: 'Compass'
-  }
-];
-
-export const CAFE_MENU: MenuItem[] = [
-  {
-    id: 'c1',
-    name: 'Benguet Highland Brewed Coffee',
-    category: 'beverages',
-    price: 110,
-    description: 'Classic dark roast coffee made of premium Arabica and Robusta beans sourced straight from the farmers in Benguet.',
-    isBestseller: true
+    id: 'foot-soak',
+    name: 'Herbal Foot Scrub & Soak',
+    price: 250,
+    description: 'A twenty-minute soak in warm water steeped with lemongrass and sea salt, followed by a full foot and calf scrub.',
+    icon: 'Droplets',
   },
   {
-    id: 'c2',
-    name: 'Campfire S’Mores Latte',
-    category: 'beverages',
-    price: 165,
-    description: 'Steamed milk, double espresso, gourmet chocolate, topped with whipped cream and a toasted campfire marshmallow.',
-    isBestseller: true
+    id: 'ginger-tea',
+    name: 'Ginger Tea & Wellness Snack',
+    price: 150,
+    description: 'Hot salabat brewed from native ginger, served with honey and a small plate of local rice cakes after your session.',
+    icon: 'Leaf',
   },
   {
-    id: 'c3',
-    name: 'Local Mountain Strawberry Tea',
-    category: 'beverages',
-    price: 130,
-    description: 'Infused fresh Baguio strawberries, wild honey, and freshly brewed mountain black tea leaves.'
+    id: 'aroma-oil',
+    name: 'Premium Aromatherapy Oil',
+    price: 200,
+    description: 'Upgrade to our premium blend — lavender, eucalyptus, or ylang-ylang in a cold-pressed virgin coconut oil base.',
+    icon: 'Sparkles',
   },
-  {
-    id: 'm1',
-    name: 'Valleypoint Signature Pinikpikan',
-    category: 'meals',
-    price: 390,
-    description: 'Traditional Cordilleran chicken soup smoked with salted pork etag, ginger, and Highland vegetables. Warm and deeply comforting.',
-    isBestseller: true
-  },
-  {
-    id: 'm2',
-    name: 'Baguio Garlic Rice & Longganisa',
-    category: 'meals',
-    price: 280,
-    description: 'Fragrant buttered garlic rice served with authentic sweet-spicy local skinless longganisa, salted eggs, and pickled papaya.'
-  },
-  {
-    id: 'm3',
-    name: 'Highland Barbecue Pork Skewers (3pcs)',
-    category: 'meals',
-    price: 260,
-    description: 'Tender pork loin cuts marinated in local honey and native chili spices, wood-grilled to perfection on red coals.'
-  },
-  {
-    id: 'd1',
-    name: 'Highland Strawberry Lava Cake',
-    category: 'desserts',
-    price: 195,
-    description: 'Molten warm core dark chocolate cake topped with a generous reduction of freshly-picked Benguet strawberries and vanilla bean ice cream.'
-  },
-  {
-    id: 'd2',
-    name: 'S’Mores Campfire Skillet',
-    category: 'desserts',
-    price: 220,
-    description: 'A hot cast-iron skillet loaded with melted milk chocolate chips under a toasted duvet of fluffy marshmallow domes. Served with crackers.',
-    isBestseller: true
-  },
-  {
-    id: 's1',
-    name: 'Highland Loaded Fries',
-    category: 'snacks',
-    price: 180,
-    description: 'Hand-cut local potatoes dusted with salt-ground mountain rosemary, loaded with warm cheese melt and smoked bacon bits.'
-  }
 ];
 
 export const SERVICES: Service[] = [
   {
-    id: 'camping-cafe',
-    name: 'Overlook Cafe & Restaurant',
-    description: 'Sit back and enjoy the mountain views while sipping gourmet native coffee and specialty local comfort food.',
-    image: 'https://images.unsplash.com/photo-1501339847302-ac426a4a7cbb?auto=format&fit=crop&q=80&w=1000',
-    price: 'A la carte (from ₱110)',
+    id: 'massage-therapy',
+    name: 'Massage & Body Therapy',
+    description: 'Trained therapists, traditional Ilocano hilot, and the full range of modern bodywork in private, quiet rooms.',
+    image: 'https://images.unsplash.com/photo-1544161515-4ab6ce6db874?auto=format&fit=crop&q=80&w=1000',
+    price: 'From ₱799 per session',
     details: [
-      'Indoor lounge & outdoor cliffside viewing deck',
-      'Serves craft beers and hot specialty winter concoctions',
-      'Cozy fireplace seating',
-      'Board game selections available for diners'
-    ]
+      'Traditional Ilocano hilot and Swedish massage',
+      'Shiatsu, aromatherapy and deep-tissue options',
+      'Hot stone therapy and warm bamboo massage',
+      'Body scrubs, wraps and back treatments',
+    ],
   },
   {
-    id: 'outdoor-adventure',
-    name: 'Recreational Activities & Shooting Range',
-    description: 'Connect with nature and challenge friends in our target courses and outdoor activities.',
-    image: 'https://images.unsplash.com/photo-1511556532299-8f662fc26c06?auto=format&fit=crop&q=80&w=1000',
-    price: '₱250 - ₱500 per activities',
+    id: 'beauty-wellness',
+    name: 'Facial, Nail & Beauty Care',
+    description: 'Skin and hand care using gentle, locally sourced products — booked alongside a massage or on its own.',
+    image: 'https://images.unsplash.com/photo-1570172619644-dfd03ed5d881?auto=format&fit=crop&q=80&w=1000',
+    price: '₱350 — ₱1,200 per service',
     details: [
-      'High-safety professional archery ranges',
-      'Cliffside board game areas & darts console',
-      'Scenic woodland trails for mountain jogging',
-      'Outdoor movie cinema nights (weather permitting)'
-    ]
+      'Deep-cleansing and hydrating facials',
+      'Manicure, pedicure and paraffin hand treatment',
+      'Warm foot spa with herbal soak',
+      'Ear candling and head-and-scalp therapy',
+    ],
   },
   {
-    id: 'amenities-convenience',
-    name: 'Glamping Conveniences & Care',
-    description: 'Enjoy nature without compromise. We ensure absolute sanitation, security, and warmth.',
-    image: 'https://images.unsplash.com/photo-1542601906990-b4d3fb778b09?auto=format&fit=crop&q=80&w=1000',
-    price: 'Included in stay',
+    id: 'spa-amenities',
+    name: 'Spa Comforts & Care',
+    description: 'Every branch is kept to the same standard, so the room you walk into is the same whichever city you are in.',
+    image: 'https://images.unsplash.com/photo-1512290923902-8a9f81dc236c?auto=format&fit=crop&q=80&w=1000',
+    price: 'Included with every session',
     details: [
-      'Luxury clean washrooms with high-pressure gas heaters',
-      '24/7 security wardens and campsite perimeter lights',
-      'Campsite charging stations & free High-speed Starlink Wi-Fi',
-      'Available backup generator sets for continuous power'
-    ]
-  }
+      'Fresh linens, robes and slippers for every guest',
+      'Private shower rooms and secure lockers',
+      'Air-conditioned quiet floors and soft lighting',
+      'Complimentary herbal tea and drinking water',
+    ],
+  },
 ];
 
 export const FAQS: FAQ[] = [
   {
     id: 'f1',
-    question: 'How do we get to Valleypoint Campsite from Baguio?â',
-    answer: 'We are situated in Greenvalley, Santo Tomas Road, Tuba, Benguet. By private car, navigate via Waze/Google Maps to "Valleypoint Campsite". It is roughly a 15-20 minute scenic drive from Baguio City Session Road. Public taxis are also readily available, or you can take a jeepney departing from the Baguio Plaza to Greenvalley.',
-    category: 'booking'
+    question: 'Which Spa de Iloko branches can I book?',
+    answer: 'We currently operate six branches — Baguio City, Laoag City, Vigan City, San Fernando (La Union), Dagupan City, and Urdaneta City. Pick your branch first in the booking portal; the availability calendar then shows only the rooms free at that location.',
+    category: 'booking',
   },
   {
     id: 'f2',
-    question: 'What is the climate like at the campsite?',
-    answer: 'Being elevated in Tuba/Santo Tomas mountain ridges, our weather is extremely crisp and chilly—frequently colder than downtown Baguio itself. Temperatures regularly hover between 11°C to 18°C, with beautiful heavy mists and fog rolling in by mid-afternoon. Be sure to pack thermal layers, windbreakers, and sturdy shoes.',
-    category: 'stay'
+    question: 'Do I need to book in advance, or can I walk in?',
+    answer: 'Walk-ins are welcome whenever a room is free, but weekends and evenings fill up quickly. Booking online holds a treatment room for your chosen date at your chosen branch, so we recommend reserving at least a day ahead.',
+    category: 'booking',
   },
   {
     id: 'f3',
-    question: 'Are pets allowed inside the cabins and campsite?',
-    answer: 'Yes! We are proud to be entirely pet-friendly. We welcome your fur babies to enjoy our lush grassy terrain. However, we ask pet parents to ensure their pets are on-leash in shared cafe grounds, and that you bring their cozy sleeping bedding and clean up after them.',
-    category: 'policies'
+    question: 'What should I expect during my first session?',
+    answer: 'Arrive about ten minutes early. You will be shown to a locker and given a robe and slippers, then offered a herbal foot soak while your therapist prepares the room. Tell your therapist about any injuries, allergies, or pressure preferences — they will adjust throughout.',
+    category: 'treatments',
   },
   {
     id: 'f4',
-    question: 'Is there mobile signal and Wi-Fi coverage?',
-    answer: 'Yes! We have high-speed Starlink Wi-Fi router coverage across the main cafe, patio, cabins, and glamping sites. Mobile networks (Smart, Globe) have reliable 4G/5G connections on most parts of our ridge.',
-    category: 'amenities'
+    question: 'What is included with every treatment?',
+    answer: 'Fresh linens, a robe and slippers, a secure locker, use of our shower rooms, and complimentary herbal tea after your session. Air-conditioning and quiet-floor rules apply at every branch.',
+    category: 'amenities',
   },
   {
     id: 'f5',
-    question: 'What is your rescheduling and cancellation policy?',
-    answer: 'Cancellations made 7 days prior to check-in are eligible for a 100% full booking refund. Cancellations made between 3 to 6 days prior get a 50% refund. We support 1-time free date rescheduling due to extreme weather warnings up to 24 hours prior to check-in, subject to cabin availability.',
-    category: 'policies'
+    question: 'Can I reschedule or cancel my appointment?',
+    answer: 'Yes. Unpaid reservations can be released instantly from the "Verify & Manage Reservation" tab using your reference code. For a reservation you have already paid for, contact your branch at least 24 hours before your appointment and we will move it to another date free of charge.',
+    category: 'policies',
   },
   {
     id: 'f6',
-    question: 'Do we need to bring our own food and cooking gear?',
-    answer: 'You are welcome to bring snacks! However, heavy raw-food cooking is restricted to dedicated grilling pits to prevent forest risks. Our lovely Overlook Cafe offers a highly-rated menu of delicious hot dishes, drinks, local specialties, and desserts at reasonable prices, open daily from 6:30 AM to 10:00 PM.',
-    category: 'stay'
-  }
+    question: 'Are there treatments I should avoid?',
+    answer: 'Please tell us in advance if you are pregnant, recovering from surgery, or being treated for a heart condition, high blood pressure, or a skin condition. Some treatments — hot stone and deep-tissue especially — are not suitable, and our therapists will recommend a gentler alternative.',
+    category: 'policies',
+  },
 ];

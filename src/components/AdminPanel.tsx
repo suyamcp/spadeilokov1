@@ -25,10 +25,12 @@ import {
   TrendingUp, 
   FileText,
   Search,
-  Clock
+  Clock,
+  Building2,
+  MapPin
 } from 'lucide-react';
 import { CMSData, saveCMSData, resetToBlankSlate, seedDefaultData, HIGH_QUALITY_PRESET_IMAGES } from '../lib/cmsState';
-import { Booking, Accommodation, Service, FAQ } from '../types';
+import { Booking, SpaPackage, Service, FAQ, Branch } from '../types';
 import ThemeToggle from './ThemeToggle';
 
 interface AdminPanelProps {
@@ -40,7 +42,7 @@ interface AdminPanelProps {
   onRefreshBookings: () => void;
 }
 
-type AdminTab = 'dashboard' | 'hero' | 'accommodations' | 'backstory' | 'services' | 'bookings' | 'analytics' | 'settings';
+type AdminTab = 'dashboard' | 'hero' | 'accommodations' | 'branches' | 'backstory' | 'services' | 'bookings' | 'analytics' | 'settings';
 
 export default function AdminPanel({
   currentData,
@@ -51,7 +53,7 @@ export default function AdminPanel({
   onRefreshBookings,
 }: AdminPanelProps) {
   const [isLoggedIn, setIsLoggedIn] = useState<boolean>(() => {
-    return !!sessionStorage.getItem('valleypoint_admin_token');
+    return !!sessionStorage.getItem('sdi_admin_token');
   });
   const [usernameInput, setUsernameInput] = useState<string>('');
   const [passwordInput, setPasswordInput] = useState<string>('');
@@ -83,7 +85,7 @@ export default function AdminPanel({
   const [analyticsLoading, setAnalyticsLoading] = useState(false);
 
   const loadAnalytics = () => {
-    const token = sessionStorage.getItem('valleypoint_admin_token') || '';
+    const token = sessionStorage.getItem('sdi_admin_token') || '';
     setAnalyticsLoading(true);
     fetch('/api/admin/analytics', { headers: { Authorization: `Bearer ${token}` } })
       .then(r => (r.ok ? r.json() : Promise.reject(new Error('failed'))))
@@ -101,7 +103,7 @@ export default function AdminPanel({
 
   useEffect(() => {
     if (!isLoggedIn) return;
-    const token = sessionStorage.getItem('valleypoint_admin_token') || '';
+    const token = sessionStorage.getItem('sdi_admin_token') || '';
     fetch('/api/admin/ops-settings', { headers: { Authorization: `Bearer ${token}` } })
       .then(r => (r.ok ? r.json() : Promise.reject(new Error('failed'))))
       .then(d => setHoldHours(Number(d.pendingHoldHours) || 48))
@@ -109,7 +111,7 @@ export default function AdminPanel({
   }, [isLoggedIn]);
 
   const saveHoldWindow = () => {
-    const token = sessionStorage.getItem('valleypoint_admin_token') || '';
+    const token = sessionStorage.getItem('sdi_admin_token') || '';
     setSavingHold(true);
     fetch('/api/admin/ops-settings', {
       method: 'POST',
@@ -131,11 +133,11 @@ export default function AdminPanel({
   // mount, and drop straight back to the login form if the server rejects it.
   useEffect(() => {
     if (!isLoggedIn) return;
-    const token = sessionStorage.getItem('valleypoint_admin_token') || '';
+    const token = sessionStorage.getItem('sdi_admin_token') || '';
     fetch('/api/admin/ops-settings', { headers: { Authorization: `Bearer ${token}` } })
       .then(r => {
         if (r.status === 401) {
-          sessionStorage.removeItem('valleypoint_admin_token');
+          sessionStorage.removeItem('sdi_admin_token');
           setIsLoggedIn(false);
           setLoginError('Your session expired. Please log in again.');
         }
@@ -148,8 +150,8 @@ export default function AdminPanel({
       setIsLoggedIn(false);
       setLoginError('Your session expired. Please log in again.');
     };
-    window.addEventListener('vp-admin-session-expired', expired);
-    return () => window.removeEventListener('vp-admin-session-expired', expired);
+    window.addEventListener('sdi-admin-session-expired', expired);
+    return () => window.removeEventListener('sdi-admin-session-expired', expired);
   }, []);
 
   useEffect(() => {
@@ -171,7 +173,7 @@ export default function AdminPanel({
   }, [isLoggedIn]);
 
   const savePaymentInstructions = () => {
-    const token = sessionStorage.getItem('valleypoint_admin_token') || '';
+    const token = sessionStorage.getItem('sdi_admin_token') || '';
     setSavingPayInstr(true);
     fetch('/api/content', {
       method: 'POST',
@@ -220,7 +222,7 @@ export default function AdminPanel({
     })
     .then(data => {
       if (data.token) {
-        sessionStorage.setItem('valleypoint_admin_token', data.token);
+        sessionStorage.setItem('sdi_admin_token', data.token);
         setIsLoggedIn(true);
       } else {
         setLoginError('Invalid login response from server.');
@@ -249,7 +251,7 @@ export default function AdminPanel({
   const [isUploading, setIsUploading] = useState<boolean>(false);
 
   const fetchCustomImages = () => {
-    const token = sessionStorage.getItem('valleypoint_admin_token') || '';
+    const token = sessionStorage.getItem('sdi_admin_token') || '';
     fetch('/api/uploaded-images', {
       headers: {
         'Authorization': `Bearer ${token}`
@@ -277,7 +279,7 @@ export default function AdminPanel({
     reader.onload = () => {
       const base64Data = reader.result as string;
       setIsUploading(true);
-      const token = sessionStorage.getItem('valleypoint_admin_token') || '';
+      const token = sessionStorage.getItem('sdi_admin_token') || '';
       fetch('/api/upload', {
         method: 'POST',
         headers: {
@@ -315,13 +317,13 @@ export default function AdminPanel({
 
   if (!isLoggedIn) {
     return (
-      <div className="min-h-[500px] flex items-center justify-center bg-pine-950 p-6 rounded-3xl border border-pine-800 text-left font-sans">
-        <div className="w-full max-w-md bg-pine-900 border border-pine-850 p-8 rounded-2xl shadow-2xl relative space-y-6">
+      <div className="min-h-[500px] flex items-center justify-center bg-sand-950 p-6 rounded-3xl border border-sand-800 text-left font-sans">
+        <div className="w-full max-w-md bg-sand-900 border border-sand-850 p-8 rounded-2xl shadow-2xl relative space-y-6">
           <div className="text-center space-y-2">
             <div className="inline-flex p-3 bg-gold-500/10 rounded-2xl border border-gold-500/20 text-gold-400 mb-2">
               <Settings className="w-6 h-6 animate-spin" style={{ animationDuration: '10s' }} />
             </div>
-            <h3 className="font-serif font-black text-2xl text-cream-100">Valleypoint Admin Portal</h3>
+            <h3 className="font-serif font-black text-2xl text-cream-100">Spa de Iloko Admin Portal</h3>
             <p className="text-xs text-neutral-400">
               Please enter your credentials to open administrative workspace panels.
             </p>
@@ -337,7 +339,7 @@ export default function AdminPanel({
                 onChange={e => setUsernameInput(e.target.value)}
                 placeholder="Enter admin email"
                 autoComplete="off"
-                className="w-full bg-pine-950 border border-pine-850 rounded-xl py-2.5 px-4 text-sm text-cream-100 focus:outline-none focus:border-gold-500 transition-all font-mono"
+                className="w-full bg-sand-950 border border-sand-850 rounded-xl py-2.5 px-4 text-sm text-cream-100 focus:outline-none focus:border-gold-500 transition-all font-mono"
               />
             </div>
 
@@ -350,7 +352,7 @@ export default function AdminPanel({
                 onChange={e => setPasswordInput(e.target.value)}
                 placeholder="Enter password"
                 autoComplete="off"
-                className="w-full bg-pine-950 border border-pine-850 rounded-xl py-2.5 px-4 text-sm text-cream-100 focus:outline-none focus:border-gold-500 transition-all font-mono"
+                className="w-full bg-sand-950 border border-sand-850 rounded-xl py-2.5 px-4 text-sm text-cream-100 focus:outline-none focus:border-gold-500 transition-all font-mono"
               />
             </div>
 
@@ -383,8 +385,8 @@ export default function AdminPanel({
   }
 
   const syncCMSWithServer = (data: CMSData) => {
-    const token = sessionStorage.getItem('valleypoint_admin_token') || '';
-    const keys: (keyof CMSData)[] = ['hero', 'about', 'accommodations', 'services', 'faqs'];
+    const token = sessionStorage.getItem('sdi_admin_token') || '';
+    const keys: (keyof CMSData)[] = ['hero', 'about', 'branches', 'accommodations', 'services', 'faqs'];
     
     Promise.all(
       keys.map(key => 
@@ -424,7 +426,7 @@ export default function AdminPanel({
   };
 
   const handleSeedDefaults = () => {
-    if (confirm('Load pre-configured Valleypoint Campsite default images, pricing, and mountain stories?')) {
+    if (confirm('Load the pre-configured Spa de Iloko default images, pricing, branches, and copy?')) {
       const seeded = seedDefaultData();
       setTempData(seeded);
       onDataChange(seeded);
@@ -443,7 +445,7 @@ export default function AdminPanel({
 
   // Booking actions
   const handleUpdateBookingStatus = (bookingId: string, status: 'confirmed' | 'cancelled' | 'pending' | 'paid_pending_review') => {
-    const token = sessionStorage.getItem('valleypoint_admin_token') || '';
+    const token = sessionStorage.getItem('sdi_admin_token') || '';
     
     fetch(`/api/bookings/${bookingId}/status`, {
       method: 'PATCH',
@@ -470,7 +472,7 @@ export default function AdminPanel({
   // Verify the guest's payment: confirm the booking AND mark the payment record received.
   const handleMarkPaid = (bookingId: string) => {
     if (!confirm(`Confirm that payment for reservation ${bookingId} has been received and verified?`)) return;
-    const token = sessionStorage.getItem('valleypoint_admin_token') || '';
+    const token = sessionStorage.getItem('sdi_admin_token') || '';
     fetch(`/api/bookings/${bookingId}/mark-paid`, {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${token}` },
@@ -492,7 +494,7 @@ export default function AdminPanel({
     if (!confirm(`Permanently DELETE reservation ${label}?
 
 This erases the booking, its payment record and its room hold from the database. It cannot be undone — use Cancel instead if you only want to free up the dates.`)) return;
-    const token = sessionStorage.getItem('valleypoint_admin_token') || '';
+    const token = sessionStorage.getItem('sdi_admin_token') || '';
 
     fetch(`/api/bookings/${bookingId}`, {
       method: 'DELETE',
@@ -513,7 +515,7 @@ This erases the booking, its payment record and its room hold from the database.
   };
 
   return (
-    <div className="bg-pine-950 border border-pine-800 rounded-3xl overflow-hidden shadow-2xl text-left font-sans">
+    <div className="bg-sand-950 border border-sand-800 rounded-3xl overflow-hidden shadow-2xl text-left font-sans">
       
       {/* Toast Notification HUD */}
       {toastMsg && (
@@ -524,20 +526,20 @@ This erases the booking, its payment record and its room hold from the database.
       )}
 
       {/* Main Admin Header */}
-      <div className="bg-pine-900 border-b border-pine-850 p-6 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+      <div className="bg-sand-900 border-b border-sand-850 p-6 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div className="flex items-center gap-3">
           <div className="p-3 bg-gold-500 rounded-2xl text-ink shadow-lg shadow-gold-500/15">
             <Settings className="w-6 h-6 animate-spin" style={{ animationDuration: '8s' }} />
           </div>
           <div>
             <h2 className="font-serif font-black text-xl text-cream-100 flex items-center gap-2">
-              Valleypoint Admin Control Panel
+              Spa de Iloko Admin Control Panel
               <span className="text-[10px] font-mono font-bold uppercase tracking-widest bg-gold-500/10 text-gold-400 py-0.5 px-2.5 rounded-full border border-gold-500/20">
                 Live CMS v1.1
               </span>
             </h2>
             <p className="text-xs text-neutral-400 mt-0.5">
-              Modify rates, update imagery placeholders, configure services, and review live reservation records.
+              Modify rates, update imagery, configure branches and services, and review live appointment records.
             </p>
           </div>
         </div>
@@ -546,7 +548,7 @@ This erases the booking, its payment record and its room hold from the database.
           <ThemeToggle />
           <button 
             onClick={onClose}
-            className="flex-1 sm:flex-none py-2.5 px-5 rounded-xl bg-pine-950 border border-pine-800 text-neutral-300 hover:text-cream-50 font-display font-bold text-xs uppercase tracking-wider transition-all cursor-pointer flex items-center justify-center gap-2"
+            className="flex-1 sm:flex-none py-2.5 px-5 rounded-xl bg-sand-950 border border-sand-800 text-neutral-300 hover:text-cream-50 font-display font-bold text-xs uppercase tracking-wider transition-all cursor-pointer flex items-center justify-center gap-2"
           >
             <Eye className="w-4 h-4 text-emerald-500" />
             <span>Customer View</span>
@@ -558,7 +560,7 @@ This erases the booking, its payment record and its room hold from the database.
       <div className="grid grid-cols-1 lg:grid-cols-12 min-h-[640px]">
         
         {/* Navigation Sidebar (3 columns) */}
-        <div className="lg:col-span-3 bg-pine-950 p-4 border-r border-pine-900/60 flex flex-col justify-between">
+        <div className="lg:col-span-3 bg-sand-950 p-4 border-r border-sand-900/60 flex flex-col justify-between">
           <div className="space-y-1.5">
             <span className="text-[9px] uppercase font-bold tracking-widest text-neutral-500 font-display block pl-3.5 mb-2">
               ADMIN SERVICES
@@ -569,7 +571,7 @@ This erases the booking, its payment record and its room hold from the database.
               className={`w-full py-3 px-4 rounded-xl text-xs font-semibold flex items-center gap-3 transition-all ${
                 activeTab === 'dashboard'
                   ? 'bg-gold-500 text-ink font-bold shadow-lg shadow-gold-500/10'
-                  : 'text-neutral-400 hover:text-cream-100 hover:bg-pine-900/40'
+                  : 'text-neutral-400 hover:text-cream-100 hover:bg-sand-900/40'
               }`}
             >
               <TrendingUp className="w-4 h-4 shrink-0" />
@@ -581,7 +583,7 @@ This erases the booking, its payment record and its room hold from the database.
               className={`w-full py-3 px-4 rounded-xl text-xs font-semibold flex items-center gap-3 transition-all ${
                 activeTab === 'hero'
                   ? 'bg-gold-500 text-ink font-bold shadow-lg shadow-gold-500/10'
-                  : 'text-neutral-400 hover:text-cream-100 hover:bg-pine-900/40'
+                  : 'text-neutral-400 hover:text-cream-100 hover:bg-sand-900/40'
               }`}
             >
               <ImageIcon className="w-4 h-4 shrink-0" />
@@ -593,11 +595,23 @@ This erases the booking, its payment record and its room hold from the database.
               className={`w-full py-3 px-4 rounded-xl text-xs font-semibold flex items-center gap-3 transition-all ${
                 activeTab === 'accommodations'
                   ? 'bg-gold-500 text-ink font-bold shadow-lg shadow-gold-500/10'
-                  : 'text-neutral-400 hover:text-cream-100 hover:bg-pine-900/40'
+                  : 'text-neutral-400 hover:text-cream-100 hover:bg-sand-900/40'
               }`}
             >
               <Sliders className="w-4 h-4 shrink-0" />
-              <span>Accommodation Schemes</span>
+              <span>Spa Packages</span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('branches')}
+              className={`w-full py-3 px-4 rounded-xl text-xs font-semibold flex items-center gap-3 transition-all ${
+                activeTab === 'branches'
+                  ? 'bg-gold-500 text-ink font-bold shadow-lg shadow-gold-500/10'
+                  : 'text-neutral-400 hover:text-cream-100 hover:bg-sand-900/40'
+              }`}
+            >
+              <Building2 className="w-4 h-4 shrink-0" />
+              <span>Branch Directory</span>
             </button>
 
             <button
@@ -605,11 +619,11 @@ This erases the booking, its payment record and its room hold from the database.
               className={`w-full py-3 px-4 rounded-xl text-xs font-semibold flex items-center gap-3 transition-all ${
                 activeTab === 'backstory'
                   ? 'bg-gold-500 text-ink font-bold shadow-lg shadow-gold-500/10'
-                  : 'text-neutral-400 hover:text-cream-100 hover:bg-pine-900/40'
+                  : 'text-neutral-400 hover:text-cream-100 hover:bg-sand-900/40'
               }`}
             >
               <FileText className="w-4 h-4 shrink-0" />
-              <span>Mountain Story</span>
+              <span>Our Story</span>
             </button>
 
             <button
@@ -617,11 +631,11 @@ This erases the booking, its payment record and its room hold from the database.
               className={`w-full py-3 px-4 rounded-xl text-xs font-semibold flex items-center gap-3 transition-all ${
                 activeTab === 'services'
                   ? 'bg-gold-500 text-ink font-bold shadow-lg shadow-gold-500/10'
-                  : 'text-neutral-400 hover:text-cream-100 hover:bg-pine-900/40'
+                  : 'text-neutral-400 hover:text-cream-100 hover:bg-sand-900/40'
               }`}
             >
               <Briefcase className="w-4 h-4 shrink-0" />
-              <span>Hospitality Services</span>
+              <span>Treatments & Services</span>
             </button>
 
             <button
@@ -629,7 +643,7 @@ This erases the booking, its payment record and its room hold from the database.
               className={`w-full py-3 px-4 rounded-xl text-xs font-semibold flex items-center gap-3 transition-all relative ${
                 activeTab === 'bookings'
                   ? 'bg-gold-500 text-ink font-bold shadow-lg shadow-gold-500/10'
-                  : 'text-neutral-400 hover:text-cream-100 hover:bg-pine-900/40'
+                  : 'text-neutral-400 hover:text-cream-100 hover:bg-sand-900/40'
               }`}
             >
               <Calendar className="w-4 h-4 shrink-0" />
@@ -646,7 +660,7 @@ This erases the booking, its payment record and its room hold from the database.
               className={`w-full py-3 px-4 rounded-xl text-xs font-semibold flex items-center gap-3 transition-all ${
                 activeTab === 'analytics'
                   ? 'bg-gold-500 text-ink font-bold shadow-lg shadow-gold-500/10'
-                  : 'text-neutral-400 hover:text-cream-100 hover:bg-pine-900/40'
+                  : 'text-neutral-400 hover:text-cream-100 hover:bg-sand-900/40'
               }`}
             >
               <Users className="w-4 h-4 shrink-0" />
@@ -658,7 +672,7 @@ This erases the booking, its payment record and its room hold from the database.
               className={`w-full py-3 px-4 rounded-xl text-xs font-semibold flex items-center gap-3 transition-all ${
                 activeTab === 'settings'
                   ? 'bg-gold-500 text-ink font-bold shadow-lg shadow-gold-500/10'
-                  : 'text-neutral-400 hover:text-cream-100 hover:bg-pine-900/40'
+                  : 'text-neutral-400 hover:text-cream-100 hover:bg-sand-900/40'
               }`}
             >
               <Settings className="w-4 h-4 shrink-0" />
@@ -666,7 +680,7 @@ This erases the booking, its payment record and its room hold from the database.
             </button>
           </div>
 
-          <div className="border-t border-pine-900/60 pt-4 space-y-2 mt-8">
+          <div className="border-t border-sand-900/60 pt-4 space-y-2 mt-8">
             <span className="text-[9px] uppercase font-bold tracking-widest text-neutral-500 font-display block pl-3.5 mb-2">
               SLATE DEPLOYS
             </span>
@@ -688,42 +702,42 @@ This erases the booking, its payment record and its room hold from the database.
         </div>
 
         {/* CMS Configuration Pane (9 columns) */}
-        <div className="lg:col-span-9 bg-pine-900/40 p-6 sm:p-8 overflow-y-auto max-h-[700px] border-b lg:border-b-0 border-pine-900">
+        <div className="lg:col-span-9 bg-sand-900/40 p-6 sm:p-8 overflow-y-auto max-h-[700px] border-b lg:border-b-0 border-sand-900">
           
           {/* TAB 1: DASHBOARD STATS & SEEDING */}
           {activeTab === 'dashboard' && (
             <div className="space-y-6 animate-fadeIn" id="admin_tab_dashboard">
               <div>
-                <h3 className="font-serif font-black text-xl text-cream-100">Campsite Overview & Deployment</h3>
+                <h3 className="font-serif font-black text-xl text-cream-100">Spa Overview & Deployment</h3>
                 <p className="text-xs text-neutral-400 mt-1">
-                  Assess how your Valleypoint web integration is currently behaving, seed rich data, and view real-time reservation indices.
+                  Assess how your Spa de Iloko website is currently behaving, seed rich data, and view real-time appointment figures.
                 </p>
               </div>
 
               {/* Stats Row */}
               <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
-                <div className="bg-pine-950 p-5 rounded-2xl border border-pine-850">
+                <div className="bg-sand-950 p-5 rounded-2xl border border-sand-850">
                   <span className="text-[9px] font-mono font-bold text-neutral-500 uppercase tracking-widest block">Total Sales Revenue</span>
                   <span className="font-display font-black text-2xl text-gold-400 block mt-1">
                     ₱{totalSales.toLocaleString()}
                   </span>
                   <span className="text-[10px] text-neutral-400 block mt-1">From confirmed bookings</span>
                 </div>
-                <div className="bg-pine-950 p-5 rounded-2xl border border-pine-850">
+                <div className="bg-sand-950 p-5 rounded-2xl border border-sand-850">
                   <span className="text-[9px] font-mono font-bold text-neutral-500 uppercase tracking-widest block">Confirmed Stays</span>
                   <span className="font-display font-black text-2xl text-emerald-400 block mt-1">
                     {activeBookingsCount}
                   </span>
                   <span className="text-[10px] text-neutral-400 block mt-1">Active reservations</span>
                 </div>
-                <div className="bg-pine-950 p-5 rounded-2xl border border-pine-850">
+                <div className="bg-sand-950 p-5 rounded-2xl border border-sand-850">
                   <span className="text-[9px] font-mono font-bold text-neutral-500 uppercase tracking-widest block">Pending Reviews</span>
                   <span className="font-display font-black text-2xl text-amber-500 block mt-1">
                     {pendingBookingsCount}
                   </span>
                   <span className="text-[10px] text-neutral-400 block mt-1">Awaiting confirmations</span>
                 </div>
-                <div className="bg-pine-950 p-5 rounded-2xl border border-pine-850">
+                <div className="bg-sand-950 p-5 rounded-2xl border border-sand-850">
                   <span className="text-[9px] font-mono font-bold text-neutral-500 uppercase tracking-widest block">CMS Sync Status</span>
                   <span className="font-display font-black text-sm text-sky-400 uppercase tracking-wide block mt-2.5 flex items-center gap-1.5">
                     <Clock className="w-4 h-4 animate-pulse text-sky-400" /> SYNCED LOCAL
@@ -733,17 +747,17 @@ This erases the booking, its payment record and its room hold from the database.
               </div>
 
               {/* System State Warning / Explainer */}
-              <div className="bg-pine-950 rounded-2xl p-6 border border-pine-850 space-y-4">
+              <div className="bg-sand-950 rounded-2xl p-6 border border-sand-850 space-y-4">
                 <h4 className="font-display font-bold text-xs text-cream-100 uppercase tracking-wider flex items-center gap-2">
                   <HelpCircle className="w-4 h-4 text-gold-500" />
-                  Understanding Valleypoint's Two Systems
+                  Understanding Spa de Iloko's Two Systems
                 </h4>
                 <div className="text-xs text-neutral-400 space-y-2.5 leading-relaxed">
                   <p>
                     Your website operates with <strong>strict modular boundaries</strong>. Under the user's direction, the Customer UI is designed to remain completely blank of static content (displaying elegant wireframe image blocks and empty typography frames) until you, the administrator, upload details through this control panel.
                   </p>
                   <p>
-                    The layout, typography (fonts, sizes), and backing pine forest colors remain solid and high-contrast, but the content is entirely in your hands! You can test this workflow in two ways:
+                    The layout, typography (fonts, sizes), and the warm brown brand colors remain solid and high-contrast, but the content is entirely in your hands! You can test this workflow in two ways:
                   </p>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
                     <div className="p-4 bg-red-500/5 rounded-xl border border-red-500/10 space-y-1">
@@ -759,7 +773,7 @@ This erases the booking, its payment record and its room hold from the database.
                         <Sparkles className="w-3.5 h-3.5" /> 2. Seed Default Content
                       </h5>
                       <p className="text-[11px] text-neutral-500">
-                        Instantly populates the system with Valleypoint's premium default setup so you can observe what a fully styled, finished website feels like immediately!
+                        Instantly populates the system with Spa de Iloko's default setup so you can observe what a fully styled, finished website feels like immediately!
                       </p>
                     </div>
                   </div>
@@ -772,20 +786,20 @@ This erases the booking, its payment record and its room hold from the database.
                   Quick Image Preset Gallery
                 </h4>
                 <p className="text-[11px] text-neutral-400 leading-normal pl-1">
-                  Copy any of these carefully curated high-resolution mountain camping images from Unsplash to easily paste into your image sections:
+                  Copy any of these curated high-resolution spa images from Unsplash to easily paste into your image sections:
                 </p>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                   {HIGH_QUALITY_PRESET_IMAGES.map((img, idx) => (
                     <div 
                       key={idx} 
-                      className="group bg-pine-950 border border-pine-850 hover:border-gold-500/40 rounded-xl overflow-hidden cursor-pointer p-1.5 transition-all"
+                      className="group bg-sand-950 border border-sand-850 hover:border-gold-500/40 rounded-xl overflow-hidden cursor-pointer p-1.5 transition-all"
                       onClick={() => {
                         navigator.clipboard.writeText(img.url);
                         triggerToast(`Copied image link for "${img.name}"!`);
                       }}
                       title="Click to copy Unsplash image URL"
                     >
-                      <div className="aspect-video rounded-lg overflow-hidden bg-pine-900 relative">
+                      <div className="aspect-video rounded-lg overflow-hidden bg-sand-900 relative">
                         <img src={img.url} className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
                         <span className="absolute bottom-1 right-1 text-[8px] bg-black/75 px-1 py-0.5 rounded font-mono text-neutral-300">Copy</span>
                       </div>
@@ -798,14 +812,14 @@ This erases the booking, its payment record and its room hold from the database.
               </div>
 
               {/* Custom Cloud Storage Image Library */}
-              <div className="space-y-3 border-t border-pine-850/50 pt-5">
+              <div className="space-y-3 border-t border-sand-850/50 pt-5">
                 <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 px-1">
                   <div>
                     <h4 className="font-display font-bold text-xs text-cream-100 uppercase tracking-wider">
                       Your Cloud Storage Image Library
                     </h4>
                     <p className="text-[11px] text-neutral-400 leading-normal mt-0.5">
-                      Upload and store your own custom images directly on Valleypoint Cloud Storage. Click any card to copy its URL!
+                      Upload and store your own custom images directly on Spa de Iloko cloud storage. Click any card to copy its URL!
                     </p>
                   </div>
                   
@@ -830,7 +844,7 @@ This erases the booking, its payment record and its room hold from the database.
 
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                   {customImages.length === 0 && (
-                    <div className="col-span-full py-8 text-center bg-pine-950 border border-dashed border-pine-850 rounded-2xl text-neutral-500 text-xs">
+                    <div className="col-span-full py-8 text-center bg-sand-950 border border-dashed border-sand-850 rounded-2xl text-neutral-500 text-xs">
                       No custom cloud storage images yet. Click "Upload Image File" above to add your own!
                     </div>
                   )}
@@ -838,14 +852,14 @@ This erases the booking, its payment record and its room hold from the database.
                   {customImages.map((img, idx) => (
                     <div 
                       key={idx} 
-                      className="group bg-pine-950 border border-pine-850 hover:border-gold-500/40 rounded-xl overflow-hidden cursor-pointer p-1.5 transition-all"
+                      className="group bg-sand-950 border border-sand-850 hover:border-gold-500/40 rounded-xl overflow-hidden cursor-pointer p-1.5 transition-all"
                       onClick={() => {
                         navigator.clipboard.writeText(img.url);
                         triggerToast(`Copied public cloud URL for "${img.name}"!`);
                       }}
                       title="Click to copy cloud storage URL"
                     >
-                      <div className="aspect-video rounded-lg overflow-hidden bg-pine-900 relative">
+                      <div className="aspect-video rounded-lg overflow-hidden bg-sand-900 relative">
                         <img src={img.url} className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
                         <span className="absolute bottom-1 right-1 text-[8px] bg-emerald-500/90 text-white px-1 py-0.5 rounded font-mono font-bold">Copy URL</span>
                       </div>
@@ -865,7 +879,7 @@ This erases the booking, its payment record and its room hold from the database.
           {/* TAB 2: HERO CONFIGURATION */}
           {activeTab === 'hero' && (
             <div className="space-y-6 animate-fadeIn" id="admin_tab_hero">
-              <div className="flex justify-between items-center pb-4 border-b border-pine-850">
+              <div className="flex justify-between items-center pb-4 border-b border-sand-850">
                 <div>
                   <h3 className="font-serif font-black text-xl text-cream-100">Hero Section Content</h3>
                   <p className="text-xs text-neutral-400 mt-1">Configure your main billboard title, tagline badge, and big backdrop image.</p>
@@ -880,7 +894,7 @@ This erases the booking, its payment record and its room hold from the database.
 
               <div className="space-y-4">
                 {/* Backdrop Image */}
-                <div className="bg-pine-950 p-5 rounded-2xl border border-pine-850 space-y-3 text-left">
+                <div className="bg-sand-950 p-5 rounded-2xl border border-sand-850 space-y-3 text-left">
                   <label className="text-xs font-bold text-cream-100 uppercase tracking-wider font-display block">
                     Hero Billboard Background Image URL
                   </label>
@@ -893,7 +907,7 @@ This erases the booking, its payment record and its room hold from the database.
                         ...tempData,
                         hero: { ...tempData.hero, backgroundImage: e.target.value }
                       })}
-                      className="flex-1 bg-pine-900 border border-pine-800 focus:border-gold-500/80 rounded-xl px-4 py-2.5 text-xs text-cream-50 placeholder-neutral-600 focus:outline-none font-mono w-full"
+                      className="flex-1 bg-sand-900 border border-sand-800 focus:border-gold-500/80 rounded-xl px-4 py-2.5 text-xs text-cream-50 placeholder-neutral-600 focus:outline-none font-mono w-full"
                     />
                     <div className="flex gap-2 shrink-0 self-stretch sm:self-auto justify-end">
                       <button 
@@ -902,7 +916,7 @@ This erases the booking, its payment record and its room hold from the database.
                           hero: { ...tempData.hero, backgroundImage: HIGH_QUALITY_PRESET_IMAGES[0].url }
                         })}
                         type="button"
-                        className="py-2.5 px-4 rounded-xl bg-pine-900 border border-pine-805 text-gold-400 hover:text-gold-300 font-display font-semibold text-xs transition-all cursor-pointer"
+                        className="py-2.5 px-4 rounded-xl bg-sand-900 border border-sand-805 text-gold-400 hover:text-gold-300 font-display font-semibold text-xs transition-all cursor-pointer"
                       >
                         Use Default Preset
                       </button>
@@ -928,11 +942,11 @@ This erases the booking, its payment record and its room hold from the database.
                     </div>
                   </div>
                   {tempData.hero.backgroundImage ? (
-                    <div className="mt-2 aspect-[21/9] w-full rounded-xl overflow-hidden border border-pine-850">
+                    <div className="mt-2 aspect-[21/9] w-full rounded-xl overflow-hidden border border-sand-850">
                       <img src={tempData.hero.backgroundImage} className="w-full h-full object-cover" />
                     </div>
                   ) : (
-                    <div className="mt-2 aspect-[21/9] w-full rounded-xl border border-dashed border-pine-800 flex items-center justify-center bg-pine-900/30 text-neutral-500 text-xs">
+                    <div className="mt-2 aspect-[21/9] w-full rounded-xl border border-dashed border-sand-800 flex items-center justify-center bg-sand-900/30 text-neutral-500 text-xs">
                       No background image specified. Customer UI will display a solid dark fallback.
                     </div>
                   )}
@@ -940,53 +954,53 @@ This erases the booking, its payment record and its room hold from the database.
 
                 {/* Subheader and Titles */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div className="bg-pine-950 p-5 rounded-2xl border border-pine-850 space-y-1.5 text-left">
+                  <div className="bg-sand-950 p-5 rounded-2xl border border-sand-850 space-y-1.5 text-left">
                     <label className="text-xs font-bold text-cream-100 uppercase tracking-wider font-display block">
                       Tagline Badge Text (Small Caps)
                     </label>
                     <input 
                       type="text"
-                      placeholder="e.g. BENGUET VALLEY SANCTUARY"
+                      placeholder="e.g. RELAX · REFRESH · REJUVENATE"
                       value={tempData.hero.tagline}
                       onChange={(e) => setTempData({
                         ...tempData,
                         hero: { ...tempData.hero, tagline: e.target.value }
                       })}
-                      className="w-full bg-pine-900 border border-pine-800 focus:border-gold-500/80 rounded-xl px-4 py-2.5 text-xs text-cream-50 focus:outline-none"
+                      className="w-full bg-sand-900 border border-sand-800 focus:border-gold-500/80 rounded-xl px-4 py-2.5 text-xs text-cream-50 focus:outline-none"
                     />
                   </div>
 
-                  <div className="bg-pine-950 p-5 rounded-2xl border border-pine-850 space-y-1.5 text-left">
+                  <div className="bg-sand-950 p-5 rounded-2xl border border-sand-850 space-y-1.5 text-left">
                     <label className="text-xs font-bold text-cream-100 uppercase tracking-wider font-display block">
                       Main Brand Title
                     </label>
                     <input 
                       type="text"
-                      placeholder="e.g. Valleypoint Campsite"
+                      placeholder="e.g. Spa de Iloko"
                       value={tempData.hero.title}
                       onChange={(e) => setTempData({
                         ...tempData,
                         hero: { ...tempData.hero, title: e.target.value }
                       })}
-                      className="w-full bg-pine-900 border border-pine-800 focus:border-gold-500/80 rounded-xl px-4 py-2.5 text-xs text-cream-50 focus:outline-none"
+                      className="w-full bg-sand-900 border border-sand-800 focus:border-gold-500/80 rounded-xl px-4 py-2.5 text-xs text-cream-50 focus:outline-none"
                     />
                   </div>
                 </div>
 
                 {/* Main description */}
-                <div className="bg-pine-950 p-5 rounded-2xl border border-pine-850 space-y-1.5 text-left">
+                <div className="bg-sand-950 p-5 rounded-2xl border border-sand-850 space-y-1.5 text-left">
                   <label className="text-xs font-bold text-cream-100 uppercase tracking-wider font-display block">
                     Hero Subtitle & Introduction Paragraph
                   </label>
                   <textarea 
                     rows={3}
-                    placeholder="Provide a welcoming sentence detailing your mountain campsite sanctuary..."
+                    placeholder="Provide a welcoming sentence describing your spa and what guests can expect..."
                     value={tempData.hero.description}
                     onChange={(e) => setTempData({
                       ...tempData,
                       hero: { ...tempData.hero, description: e.target.value }
                     })}
-                    className="w-full bg-pine-900 border border-pine-800 focus:border-gold-500/80 rounded-xl px-4 py-3 text-xs text-cream-50 focus:outline-none leading-relaxed"
+                    className="w-full bg-sand-900 border border-sand-800 focus:border-gold-500/80 rounded-xl px-4 py-3 text-xs text-cream-50 focus:outline-none leading-relaxed"
                   />
                 </div>
               </div>
@@ -996,25 +1010,25 @@ This erases the booking, its payment record and its room hold from the database.
           {/* TAB 3: ACCOMMODATIONS */}
           {activeTab === 'accommodations' && (
             <div className="space-y-6 animate-fadeIn" id="admin_tab_accommodations">
-              <div className="flex justify-between items-center pb-4 border-b border-pine-850">
+              <div className="flex justify-between items-center pb-4 border-b border-sand-850">
                 <div>
-                  <h3 className="font-serif font-black text-xl text-cream-100">Accommodation Schemes</h3>
-                  <p className="text-xs text-neutral-400 mt-1">Configure pricing, details, available quantities, and images for stay packages.</p>
+                  <h3 className="font-serif font-black text-xl text-cream-100">Spa Packages</h3>
+                  <p className="text-xs text-neutral-400 mt-1">Configure pricing, inclusions, room counts, and images for each bookable package. Room counts apply <span className="text-gold-400 font-semibold">per branch</span>.</p>
                 </div>
                 <button 
                   onClick={() => handleSave(tempData)}
                   className="py-2.5 px-4 rounded-xl bg-gold-500 hover:bg-gold-400 text-ink font-display font-black text-xs uppercase tracking-wider flex items-center gap-1.5 transition-all shadow-lg cursor-pointer"
                 >
-                  <Save className="w-4 h-4" /> Save Stays
+                  <Save className="w-4 h-4" /> Save Packages
                 </button>
               </div>
 
               <div className="space-y-6">
                 {tempData.accommodations.map((acc, index) => (
-                  <div key={acc.id} className="bg-pine-950 p-6 rounded-2xl border border-pine-850 space-y-4 text-left">
-                    <div className="flex justify-between items-center border-b border-pine-900 pb-3">
+                  <div key={acc.id} className="bg-sand-950 p-6 rounded-2xl border border-sand-850 space-y-4 text-left">
+                    <div className="flex justify-between items-center border-b border-sand-900 pb-3">
                       <span className="text-xs font-black tracking-widest text-gold-400 font-display uppercase">
-                        Scheme Plot #{index + 1} — {acc.type === 'luxury_cabin' ? 'Premium Suite' : acc.type === 'glamping_tent' ? 'Glamping' : 'Campground'}
+                        Package #{index + 1} — {acc.type === 'signature_suite' ? 'Signature Suite' : acc.type === 'deluxe_room' ? 'Deluxe Room' : 'Classic Room'}
                       </span>
                       <span className="text-[10px] font-mono text-neutral-500 uppercase font-semibold">ID: {acc.id}</span>
                     </div>
@@ -1024,18 +1038,18 @@ This erases the booking, its payment record and its room hold from the database.
                         {/* Accommodation Name */}
                         <div className="space-y-1.5">
                           <label className="text-[10px] font-bold text-cream-100 uppercase tracking-widest font-display block">
-                            Accommodation Title
+                            Package Title
                           </label>
                           <input 
                             type="text"
-                            placeholder="e.g. Glass-Front Luxury Cabin"
+                            placeholder="e.g. Signature Couple's Suite"
                             value={acc.name}
                             onChange={(e) => {
                               const list = [...tempData.accommodations];
                               list[index].name = e.target.value;
                               setTempData({ ...tempData, accommodations: list });
                             }}
-                            className="w-full bg-pine-900 border border-pine-800 focus:border-gold-500/80 rounded-xl px-4 py-2 text-xs text-cream-50 focus:outline-none"
+                            className="w-full bg-sand-900 border border-sand-800 focus:border-gold-500/80 rounded-xl px-4 py-2 text-xs text-cream-50 focus:outline-none"
                           />
                         </div>
 
@@ -1054,13 +1068,13 @@ This erases the booking, its payment record and its room hold from the database.
                                 list[index].capacity = parseInt(e.target.value) || 0;
                                 setTempData({ ...tempData, accommodations: list });
                               }}
-                              className="w-full bg-pine-900 border border-pine-800 focus:border-gold-500/80 rounded-xl px-4 py-2 text-xs text-cream-50 focus:outline-none"
+                              className="w-full bg-sand-900 border border-sand-800 focus:border-gold-500/80 rounded-xl px-4 py-2 text-xs text-cream-50 focus:outline-none"
                             />
                           </div>
 
                           <div className="space-y-1.5">
                             <label className="text-[10px] font-bold text-cream-100 uppercase tracking-widest font-display block">
-                              Total Plot Plots Available
+                              Treatment Rooms (per branch)
                             </label>
                             <input 
                               type="number"
@@ -1071,7 +1085,7 @@ This erases the booking, its payment record and its room hold from the database.
                                 list[index].quantity = parseInt(e.target.value) || 0;
                                 setTempData({ ...tempData, accommodations: list });
                               }}
-                              className="w-full bg-pine-900 border border-pine-800 focus:border-gold-500/80 rounded-xl px-4 py-2 text-xs text-cream-50 focus:outline-none"
+                              className="w-full bg-sand-900 border border-sand-800 focus:border-gold-500/80 rounded-xl px-4 py-2 text-xs text-cream-50 focus:outline-none"
                             />
                           </div>
                         </div>
@@ -1079,7 +1093,7 @@ This erases the booking, its payment record and its room hold from the database.
                         {/* Rate Price */}
                         <div className="space-y-1.5">
                           <label className="text-[10px] font-bold text-cream-100 uppercase tracking-widest font-display block">
-                            Price per Night (₱)
+                            Price per Session (₱)
                           </label>
                           <div className="relative">
                             <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-gold-500">
@@ -1094,7 +1108,7 @@ This erases the booking, its payment record and its room hold from the database.
                                 list[index].price = parseInt(e.target.value) || 0;
                                 setTempData({ ...tempData, accommodations: list });
                               }}
-                              className="w-full bg-pine-900 border border-pine-800 focus:border-gold-500/80 rounded-xl pl-8 pr-4 py-2 text-xs text-cream-50 focus:outline-none font-mono font-bold"
+                              className="w-full bg-sand-900 border border-sand-800 focus:border-gold-500/80 rounded-xl pl-8 pr-4 py-2 text-xs text-cream-50 focus:outline-none font-mono font-bold"
                             />
                           </div>
                         </div>
@@ -1116,7 +1130,7 @@ This erases the booking, its payment record and its room hold from the database.
                                 list[index].imageUrl = e.target.value;
                                 setTempData({ ...tempData, accommodations: list });
                               }}
-                              className="flex-1 bg-pine-900 border border-pine-800 focus:border-gold-500/80 rounded-xl px-4 py-2 text-xs text-cream-50 focus:outline-none font-mono"
+                              className="flex-1 bg-sand-900 border border-sand-800 focus:border-gold-500/80 rounded-xl px-4 py-2 text-xs text-cream-50 focus:outline-none font-mono"
                             />
                             <label className="py-2 px-3 rounded-xl bg-gold-500 hover:bg-gold-400 text-ink font-display font-bold text-xs transition-all cursor-pointer flex items-center justify-center shrink-0">
                               <span>{isUploading ? '...' : 'Upload'}</span>
@@ -1141,11 +1155,11 @@ This erases the booking, its payment record and its room hold from the database.
 
                         {/* Thumbnail Preview */}
                         {acc.imageUrl ? (
-                          <div className="aspect-video w-full rounded-xl overflow-hidden border border-pine-850 bg-pine-900 relative">
+                          <div className="aspect-video w-full rounded-xl overflow-hidden border border-sand-850 bg-sand-900 relative">
                             <img src={acc.imageUrl} className="w-full h-full object-cover" />
                           </div>
                         ) : (
-                          <div className="aspect-video w-full rounded-xl border border-dashed border-pine-800 flex flex-col items-center justify-center bg-pine-900/30 text-neutral-500 text-[10px] p-4 text-center">
+                          <div className="aspect-video w-full rounded-xl border border-dashed border-sand-800 flex flex-col items-center justify-center bg-sand-900/30 text-neutral-500 text-[10px] p-4 text-center">
                             <ImageIcon className="w-6 h-6 text-neutral-600 mb-1" />
                             <span>No cover image uploaded. Displays blank outline card in customer UI.</span>
                           </div>
@@ -1160,32 +1174,32 @@ This erases the booking, its payment record and its room hold from the database.
                       </label>
                       <textarea 
                         rows={2}
-                        placeholder="Detail the cabin specifications, bedding, scenery, views, and washroom details..."
+                        placeholder="Detail the treatment length, the oils used, the room setup, and what is included..."
                         value={acc.description}
                         onChange={(e) => {
                           const list = [...tempData.accommodations];
                           list[index].description = e.target.value;
                           setTempData({ ...tempData, accommodations: list });
                         }}
-                        className="w-full bg-pine-900 border border-pine-800 focus:border-gold-500/80 rounded-xl px-4 py-2.5 text-xs text-cream-50 focus:outline-none leading-relaxed"
+                        className="w-full bg-sand-900 border border-sand-800 focus:border-gold-500/80 rounded-xl px-4 py-2.5 text-xs text-cream-50 focus:outline-none leading-relaxed"
                       />
                     </div>
 
                     {/* Features Tagging */}
                     <div className="space-y-2">
                       <label className="text-[10px] font-bold text-cream-100 uppercase tracking-widest font-display block">
-                        Amenities Checklist Index (Features list separated by commas)
+                        Inclusions Checklist (list separated by commas)
                       </label>
                       <input 
                         type="text"
-                        placeholder="Queen Bed, High-speed Wi-Fi, Private Heater, Sea of Clouds view..."
+                        placeholder="60-Minute Massage, Herbal Foot Soak, Hot Towels, Complimentary Tea..."
                         value={acc.features.join(', ')}
                         onChange={(e) => {
                           const list = [...tempData.accommodations];
                           list[index].features = e.target.value.split(',').map(s => s.trim()).filter(Boolean);
                           setTempData({ ...tempData, accommodations: list });
                         }}
-                        className="w-full bg-pine-900 border border-pine-800 focus:border-gold-500/80 rounded-xl px-4 py-2 text-xs text-cream-50 focus:outline-none"
+                        className="w-full bg-sand-900 border border-sand-800 focus:border-gold-500/80 rounded-xl px-4 py-2 text-xs text-cream-50 focus:outline-none"
                       />
                     </div>
                   </div>
@@ -1194,13 +1208,179 @@ This erases the booking, its payment record and its room hold from the database.
             </div>
           )}
 
+          {activeTab === 'branches' && (
+            <div className="space-y-6 animate-fadeIn" id="admin_tab_branches">
+              <div className="flex justify-between items-center pb-4 border-b border-sand-850 gap-4 flex-wrap">
+                <div>
+                  <h3 className="font-serif font-black text-xl text-cream-100">Branch Directory</h3>
+                  <p className="text-xs text-neutral-400 mt-1">
+                    The locations clients choose between when booking. Each branch keeps its own set of
+                    treatment rooms, so availability at one never eats into another.
+                  </p>
+                </div>
+                <button
+                  onClick={() => handleSave(tempData)}
+                  className="py-2.5 px-4 rounded-xl bg-gold-500 hover:bg-gold-400 text-ink font-display font-black text-xs uppercase tracking-wider flex items-center gap-1.5 transition-all shadow-lg cursor-pointer"
+                >
+                  <Save className="w-4 h-4" /> Save Branches
+                </button>
+              </div>
+
+              <div className="flex items-start gap-2.5 bg-amber-500/5 border border-amber-500/20 rounded-2xl p-4 text-[11px] text-amber-300 leading-relaxed">
+                <HelpCircle className="w-4 h-4 shrink-0 mt-px" />
+                <span>
+                  A branch's <span className="font-mono font-bold">ID</span> is the key stored on every treatment room and
+                  every booking, so it is fixed. Renaming a branch is safe and takes effect everywhere; changing an ID is not
+                  offered because it would orphan existing appointments. To open a new location, use
+                  <span className="font-semibold"> Add Branch</span> below and give it a fresh ID.
+                </span>
+              </div>
+
+              <div className="space-y-4">
+                {tempData.branches.map((branch: Branch, index: number) => (
+                  <div key={branch.id || index} className="bg-sand-950 p-6 rounded-2xl border border-sand-850 space-y-4 text-left">
+                    <div className="flex justify-between items-center border-b border-sand-900 pb-3 gap-3">
+                      <span className="text-xs font-black tracking-widest text-gold-400 font-display uppercase flex items-center gap-2">
+                        <MapPin className="w-3.5 h-3.5" /> Branch #{index + 1}
+                      </span>
+                      <div className="flex items-center gap-3">
+                        <span className="text-[10px] font-mono text-neutral-500 uppercase font-semibold">ID: {branch.id || '(unset)'}</span>
+                        <button
+                          onClick={() => {
+                            if (!confirm(`Remove "${branch.name || branch.id}" from the branch list? Existing appointments at this branch stay in the database, but no new bookings can be made for it.`)) return;
+                            const list = tempData.branches.filter((_: Branch, i: number) => i !== index);
+                            setTempData({ ...tempData, branches: list });
+                          }}
+                          className="p-1.5 rounded-lg bg-red-500/10 hover:bg-red-500 text-red-400 hover:text-white border border-red-500/20 transition-all cursor-pointer"
+                          title="Remove this branch"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="space-y-1.5">
+                        <label className="text-[10px] font-bold text-cream-100 uppercase tracking-widest font-display block">
+                          Branch Name
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="e.g. Baguio City Branch"
+                          value={branch.name}
+                          onChange={(e) => {
+                            const list = [...tempData.branches];
+                            list[index] = { ...list[index], name: e.target.value };
+                            setTempData({ ...tempData, branches: list });
+                          }}
+                          className="w-full bg-sand-900 border border-sand-800 focus:border-gold-500/80 rounded-xl px-4 py-2 text-xs text-cream-50 focus:outline-none"
+                        />
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <label className="text-[10px] font-bold text-cream-100 uppercase tracking-widest font-display block">
+                          City (short chip label)
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="e.g. Baguio City"
+                          value={branch.city}
+                          onChange={(e) => {
+                            const list = [...tempData.branches];
+                            list[index] = { ...list[index], city: e.target.value };
+                            setTempData({ ...tempData, branches: list });
+                          }}
+                          className="w-full bg-sand-900 border border-sand-800 focus:border-gold-500/80 rounded-xl px-4 py-2 text-xs text-cream-50 focus:outline-none"
+                        />
+                      </div>
+
+                      <div className="space-y-1.5 md:col-span-2">
+                        <label className="text-[10px] font-bold text-cream-100 uppercase tracking-widest font-display block">
+                          Street Address
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="e.g. Session Road, Baguio City, Benguet"
+                          value={branch.address}
+                          onChange={(e) => {
+                            const list = [...tempData.branches];
+                            list[index] = { ...list[index], address: e.target.value };
+                            setTempData({ ...tempData, branches: list });
+                          }}
+                          className="w-full bg-sand-900 border border-sand-800 focus:border-gold-500/80 rounded-xl px-4 py-2 text-xs text-cream-50 focus:outline-none"
+                        />
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <label className="text-[10px] font-bold text-cream-100 uppercase tracking-widest font-display block">
+                          Contact Number
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="+63 917 000 0001"
+                          value={branch.phone}
+                          onChange={(e) => {
+                            const list = [...tempData.branches];
+                            list[index] = { ...list[index], phone: e.target.value };
+                            setTempData({ ...tempData, branches: list });
+                          }}
+                          className="w-full bg-sand-900 border border-sand-800 focus:border-gold-500/80 rounded-xl px-4 py-2 text-xs text-cream-50 focus:outline-none font-mono"
+                        />
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <label className="text-[10px] font-bold text-cream-100 uppercase tracking-widest font-display block">
+                          Opening Hours
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="10:00 AM — 10:00 PM daily"
+                          value={branch.hours}
+                          onChange={(e) => {
+                            const list = [...tempData.branches];
+                            list[index] = { ...list[index], hours: e.target.value };
+                            setTempData({ ...tempData, branches: list });
+                          }}
+                          className="w-full bg-sand-900 border border-sand-800 focus:border-gold-500/80 rounded-xl px-4 py-2 text-xs text-cream-50 focus:outline-none"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <button
+                onClick={() => {
+                  const raw = prompt('ID for the new branch (lowercase letters, digits and dashes — this is permanent):');
+                  if (!raw) return;
+                  const id = raw.trim().toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
+                  if (!id) { alert('That ID is not usable. Try something like "candon" or "san-carlos".'); return; }
+                  if (tempData.branches.some((b: Branch) => b.id === id)) { alert('A branch with that ID already exists.'); return; }
+                  setTempData({
+                    ...tempData,
+                    branches: [...tempData.branches, { id, name: '', city: '', address: '', phone: '', hours: '' }],
+                  });
+                }}
+                className="w-full py-3 px-4 rounded-2xl border border-dashed border-gold-500/40 hover:border-gold-500 bg-gold-500/5 text-gold-400 font-display font-bold text-xs uppercase tracking-wider transition-all cursor-pointer flex items-center justify-center gap-2"
+              >
+                <Plus className="w-4 h-4" /> Add Branch
+              </button>
+
+              <p className="text-[11px] text-neutral-500 leading-relaxed">
+                After saving, open <span className="text-gold-400 font-semibold">Spa Packages</span> and press
+                <span className="text-gold-400 font-semibold"> Save Packages</span> once. That rebuilds the treatment-room
+                inventory so any newly added branch gets its own rooms.
+              </p>
+            </div>
+          )}
+
           {/* TAB 4: BACKSTORY */}
           {activeTab === 'backstory' && (
             <div className="space-y-6 animate-fadeIn" id="admin_tab_backstory">
-              <div className="flex justify-between items-center pb-4 border-b border-pine-850">
+              <div className="flex justify-between items-center pb-4 border-b border-sand-850">
                 <div>
-                  <h3 className="font-serif font-black text-xl text-cream-100">Campsite Story, Geo-coordinates, & Reviews</h3>
-                  <p className="text-xs text-neutral-400 mt-1">Configure your mountain story description paragraphs, elevations, and author testimonials.</p>
+                  <h3 className="font-serif font-black text-xl text-cream-100">Our Story, Key Facts, & Reviews</h3>
+                  <p className="text-xs text-neutral-400 mt-1">Configure your story paragraphs, the facts panel, and client testimonials.</p>
                 </div>
                 <button 
                   onClick={() => handleSave(tempData)}
@@ -1212,7 +1392,7 @@ This erases the booking, its payment record and its room hold from the database.
 
               <div className="space-y-4">
                 {/* Headers and Taglines */}
-                <div className="bg-pine-950 p-5 rounded-2xl border border-pine-850 space-y-4 text-left">
+                <div className="bg-sand-950 p-5 rounded-2xl border border-sand-850 space-y-4 text-left">
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div className="space-y-1.5">
                       <label className="text-xs font-bold text-cream-100 uppercase tracking-wider font-display block">
@@ -1220,13 +1400,13 @@ This erases the booking, its payment record and its room hold from the database.
                       </label>
                       <input 
                         type="text"
-                        placeholder="OUR MOUNTAIN STORY"
+                        placeholder="OUR STORY"
                         value={tempData.about.tagline}
                         onChange={(e) => setTempData({
                           ...tempData,
                           about: { ...tempData.about, tagline: e.target.value }
                         })}
-                        className="w-full bg-pine-900 border border-pine-800 focus:border-gold-500/80 rounded-xl px-4 py-2 text-xs text-cream-50 focus:outline-none"
+                        className="w-full bg-sand-900 border border-sand-800 focus:border-gold-500/80 rounded-xl px-4 py-2 text-xs text-cream-50 focus:outline-none"
                       />
                     </div>
 
@@ -1236,13 +1416,13 @@ This erases the booking, its payment record and its room hold from the database.
                       </label>
                       <input 
                         type="text"
-                        placeholder="e.g. Cozy Mountain Cabins Meet the Wilderness"
+                        placeholder="e.g. Where Traditional Hilot Meets Modern Comfort"
                         value={tempData.about.title}
                         onChange={(e) => setTempData({
                           ...tempData,
                           about: { ...tempData.about, title: e.target.value }
                         })}
-                        className="w-full bg-pine-900 border border-pine-800 focus:border-gold-500/80 rounded-xl px-4 py-2 text-xs text-cream-50 focus:outline-none"
+                        className="w-full bg-sand-900 border border-sand-800 focus:border-gold-500/80 rounded-xl px-4 py-2 text-xs text-cream-50 focus:outline-none"
                       />
                     </div>
                   </div>
@@ -1255,13 +1435,13 @@ This erases the booking, its payment record and its room hold from the database.
                       </label>
                       <textarea 
                         rows={3}
-                        placeholder="First story paragraph detailing campsite positioning..."
+                        placeholder="First story paragraph — how the spa started and what it stands for..."
                         value={tempData.about.desc1}
                         onChange={(e) => setTempData({
                           ...tempData,
                           about: { ...tempData.about, desc1: e.target.value }
                         })}
-                        className="w-full bg-pine-900 border border-pine-800 focus:border-gold-500/80 rounded-xl px-4 py-2.5 text-xs text-cream-50 focus:outline-none leading-relaxed"
+                        className="w-full bg-sand-900 border border-sand-800 focus:border-gold-500/80 rounded-xl px-4 py-2.5 text-xs text-cream-50 focus:outline-none leading-relaxed"
                       />
                     </div>
 
@@ -1277,76 +1457,76 @@ This erases the booking, its payment record and its room hold from the database.
                           ...tempData,
                           about: { ...tempData.about, desc2: e.target.value }
                         })}
-                        className="w-full bg-pine-900 border border-pine-800 focus:border-gold-500/80 rounded-xl px-4 py-2.5 text-xs text-cream-50 focus:outline-none leading-relaxed"
+                        className="w-full bg-sand-900 border border-sand-800 focus:border-gold-500/80 rounded-xl px-4 py-2.5 text-xs text-cream-50 focus:outline-none leading-relaxed"
                       />
                     </div>
                   </div>
                 </div>
 
-                {/* Geographical Stats Plaque */}
-                <div className="bg-pine-950 p-5 rounded-2xl border border-pine-850 space-y-4 text-left">
-                  <h4 className="text-xs font-bold text-cream-100 uppercase tracking-wider font-display block border-b border-pine-900 pb-2">
-                    Geo-Coordinates & Plaque Specs
+                {/* At-a-glance facts plaque */}
+                <div className="bg-sand-950 p-5 rounded-2xl border border-sand-850 space-y-4 text-left">
+                  <h4 className="text-xs font-bold text-cream-100 uppercase tracking-wider font-display block border-b border-sand-900 pb-2">
+                    Spa At-a-Glance Panel
                   </h4>
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                     <div className="space-y-1">
-                      <label className="text-[10px] text-neutral-400 font-display font-semibold uppercase">Elevation height</label>
-                      <input 
+                      <label className="text-[10px] text-neutral-400 font-display font-semibold uppercase">Established</label>
+                      <input
                         type="text"
-                        placeholder="5,140 FT ASL"
-                        value={tempData.about.elevation}
+                        placeholder="EST. 2014"
+                        value={tempData.about.established}
                         onChange={(e) => setTempData({
                           ...tempData,
-                          about: { ...tempData.about, elevation: e.target.value }
+                          about: { ...tempData.about, established: e.target.value }
                         })}
-                        className="w-full bg-pine-900 border border-pine-800 focus:border-gold-500/80 rounded-xl px-3.5 py-2 text-xs text-cream-50 focus:outline-none font-mono font-bold text-gold-400"
+                        className="w-full bg-sand-900 border border-sand-800 focus:border-gold-500/80 rounded-xl px-3.5 py-2 text-xs text-cream-50 focus:outline-none font-mono font-bold text-gold-400"
                       />
                     </div>
                     <div className="space-y-1">
-                      <label className="text-[10px] text-neutral-400 font-display font-semibold uppercase">Climate Average</label>
-                      <input 
+                      <label className="text-[10px] text-neutral-400 font-display font-semibold uppercase">Branch count</label>
+                      <input
                         type="text"
-                        placeholder="14°C — 19°C"
-                        value={tempData.about.climate}
+                        placeholder="6 BRANCHES"
+                        value={tempData.about.branchCount}
                         onChange={(e) => setTempData({
                           ...tempData,
-                          about: { ...tempData.about, climate: e.target.value }
+                          about: { ...tempData.about, branchCount: e.target.value }
                         })}
-                        className="w-full bg-pine-900 border border-pine-800 focus:border-gold-500/80 rounded-xl px-3.5 py-2 text-xs text-cream-50 focus:outline-none font-mono font-bold text-gold-400"
+                        className="w-full bg-sand-900 border border-sand-800 focus:border-gold-500/80 rounded-xl px-3.5 py-2 text-xs text-cream-50 focus:outline-none font-mono font-bold text-gold-400"
                       />
                     </div>
                     <div className="space-y-1">
-                      <label className="text-[10px] text-neutral-400 font-display font-semibold uppercase">latitude</label>
-                      <input 
+                      <label className="text-[10px] text-neutral-400 font-display font-semibold uppercase">Opening hours</label>
+                      <input
                         type="text"
-                        placeholder="16.3792° N"
-                        value={tempData.about.latitude}
+                        placeholder="10:00 AM — 10:00 PM"
+                        value={tempData.about.openingHours}
                         onChange={(e) => setTempData({
                           ...tempData,
-                          about: { ...tempData.about, latitude: e.target.value }
+                          about: { ...tempData.about, openingHours: e.target.value }
                         })}
-                        className="w-full bg-pine-900 border border-pine-800 focus:border-gold-500/80 rounded-xl px-3.5 py-2 text-xs text-cream-50 focus:outline-none font-mono font-bold text-cream-200"
+                        className="w-full bg-sand-900 border border-sand-800 focus:border-gold-500/80 rounded-xl px-3.5 py-2 text-xs text-cream-50 focus:outline-none font-mono font-bold text-cream-200"
                       />
                     </div>
                     <div className="space-y-1">
-                      <label className="text-[10px] text-neutral-400 font-display font-semibold uppercase">longitude</label>
-                      <input 
+                      <label className="text-[10px] text-neutral-400 font-display font-semibold uppercase">Booking hotline</label>
+                      <input
                         type="text"
-                        placeholder="120.5755° E"
-                        value={tempData.about.longitude}
+                        placeholder="+63 917 000 0001"
+                        value={tempData.about.hotline}
                         onChange={(e) => setTempData({
                           ...tempData,
-                          about: { ...tempData.about, longitude: e.target.value }
+                          about: { ...tempData.about, hotline: e.target.value }
                         })}
-                        className="w-full bg-pine-900 border border-pine-800 focus:border-gold-500/80 rounded-xl px-3.5 py-2 text-xs text-cream-50 focus:outline-none font-mono font-bold text-cream-200"
+                        className="w-full bg-sand-900 border border-sand-800 focus:border-gold-500/80 rounded-xl px-3.5 py-2 text-xs text-cream-50 focus:outline-none font-mono font-bold text-cream-200"
                       />
                     </div>
                   </div>
                 </div>
 
                 {/* Testimonial Quote */}
-                <div className="bg-pine-950 p-5 rounded-2xl border border-pine-850 space-y-4 text-left">
-                  <h4 className="text-xs font-bold text-cream-100 uppercase tracking-wider font-display block border-b border-pine-900 pb-2">
+                <div className="bg-sand-950 p-5 rounded-2xl border border-sand-850 space-y-4 text-left">
+                  <h4 className="text-xs font-bold text-cream-100 uppercase tracking-wider font-display block border-b border-sand-900 pb-2">
                     Testimonial Quote Card
                   </h4>
                   <div className="space-y-3">
@@ -1360,7 +1540,7 @@ This erases the booking, its payment record and its room hold from the database.
                           ...tempData,
                           about: { ...tempData.about, quoteText: e.target.value }
                         })}
-                        className="w-full bg-pine-900 border border-pine-800 focus:border-gold-500/80 rounded-xl px-4 py-2 text-xs text-cream-50 focus:outline-none italic leading-relaxed"
+                        className="w-full bg-sand-900 border border-sand-800 focus:border-gold-500/80 rounded-xl px-4 py-2 text-xs text-cream-50 focus:outline-none italic leading-relaxed"
                       />
                     </div>
 
@@ -1375,7 +1555,7 @@ This erases the booking, its payment record and its room hold from the database.
                             ...tempData,
                             about: { ...tempData.about, quoteAuthor: e.target.value }
                           })}
-                          className="w-full bg-pine-900 border border-pine-800 focus:border-gold-500/80 rounded-xl px-4 py-2 text-xs text-cream-50 focus:outline-none"
+                          className="w-full bg-sand-900 border border-sand-800 focus:border-gold-500/80 rounded-xl px-4 py-2 text-xs text-cream-50 focus:outline-none"
                         />
                       </div>
                       <div className="space-y-1.5">
@@ -1388,7 +1568,7 @@ This erases the booking, its payment record and its room hold from the database.
                             ...tempData,
                             about: { ...tempData.about, quoteMeta: e.target.value }
                           })}
-                          className="w-full bg-pine-900 border border-pine-800 focus:border-gold-500/80 rounded-xl px-4 py-2 text-xs text-cream-50 focus:outline-none"
+                          className="w-full bg-sand-900 border border-sand-800 focus:border-gold-500/80 rounded-xl px-4 py-2 text-xs text-cream-50 focus:outline-none"
                         />
                       </div>
                     </div>
@@ -1401,7 +1581,7 @@ This erases the booking, its payment record and its room hold from the database.
           {/* TAB 5: SERVICES */}
           {activeTab === 'services' && (
             <div className="space-y-6 animate-fadeIn" id="admin_tab_services">
-              <div className="flex justify-between items-center pb-4 border-b border-pine-850">
+              <div className="flex justify-between items-center pb-4 border-b border-sand-850">
                 <div>
                   <h3 className="font-serif font-black text-xl text-cream-100">Hospitality Services</h3>
                   <p className="text-xs text-neutral-400 mt-1">Configure pricing tags, image covers, and feature indices for key amenities.</p>
@@ -1416,8 +1596,8 @@ This erases the booking, its payment record and its room hold from the database.
 
               <div className="space-y-6">
                 {tempData.services.map((srv, index) => (
-                  <div key={srv.id} className="bg-pine-950 p-6 rounded-2xl border border-pine-850 space-y-4 text-left">
-                    <div className="flex justify-between items-center border-b border-pine-900 pb-3">
+                  <div key={srv.id} className="bg-sand-950 p-6 rounded-2xl border border-sand-850 space-y-4 text-left">
+                    <div className="flex justify-between items-center border-b border-sand-900 pb-3">
                       <span className="text-xs font-black tracking-widest text-gold-400 font-display uppercase">
                         Hospitality Service #{index + 1}
                       </span>
@@ -1440,7 +1620,7 @@ This erases the booking, its payment record and its room hold from the database.
                               list[index].name = e.target.value;
                               setTempData({ ...tempData, services: list });
                             }}
-                            className="w-full bg-pine-900 border border-pine-800 focus:border-gold-500/80 rounded-xl px-4 py-2 text-xs text-cream-50 focus:outline-none"
+                            className="w-full bg-sand-900 border border-sand-800 focus:border-gold-500/80 rounded-xl px-4 py-2 text-xs text-cream-50 focus:outline-none"
                           />
                         </div>
 
@@ -1458,7 +1638,7 @@ This erases the booking, its payment record and its room hold from the database.
                               list[index].price = e.target.value;
                               setTempData({ ...tempData, services: list });
                             }}
-                            className="w-full bg-pine-900 border border-pine-800 focus:border-gold-500/80 rounded-xl px-4 py-2 text-xs text-cream-50 focus:outline-none"
+                            className="w-full bg-sand-900 border border-sand-800 focus:border-gold-500/80 rounded-xl px-4 py-2 text-xs text-cream-50 focus:outline-none"
                           />
                         </div>
                       </div>
@@ -1479,7 +1659,7 @@ This erases the booking, its payment record and its room hold from the database.
                                 list[index].image = e.target.value;
                                 setTempData({ ...tempData, services: list });
                               }}
-                              className="flex-1 bg-pine-900 border border-pine-800 focus:border-gold-500/80 rounded-xl px-4 py-2 text-xs text-cream-50 focus:outline-none font-mono"
+                              className="flex-1 bg-sand-900 border border-sand-800 focus:border-gold-500/80 rounded-xl px-4 py-2 text-xs text-cream-50 focus:outline-none font-mono"
                             />
                             <label className="py-2 px-3 rounded-xl bg-gold-500 hover:bg-gold-400 text-ink font-display font-bold text-xs transition-all cursor-pointer flex items-center justify-center shrink-0">
                               <span>{isUploading ? '...' : 'Upload'}</span>
@@ -1504,11 +1684,11 @@ This erases the booking, its payment record and its room hold from the database.
 
                         {/* Image Preview */}
                         {srv.image ? (
-                          <div className="aspect-video w-full rounded-xl overflow-hidden border border-pine-850 bg-pine-900">
+                          <div className="aspect-video w-full rounded-xl overflow-hidden border border-sand-850 bg-sand-900">
                             <img src={srv.image} className="w-full h-full object-cover" />
                           </div>
                         ) : (
-                          <div className="aspect-video w-full rounded-xl border border-dashed border-pine-800 flex flex-col items-center justify-center bg-pine-900/30 text-neutral-500 text-[10px] p-4 text-center">
+                          <div className="aspect-video w-full rounded-xl border border-dashed border-sand-800 flex flex-col items-center justify-center bg-sand-900/30 text-neutral-500 text-[10px] p-4 text-center">
                             <ImageIcon className="w-5 h-5 text-neutral-600 mb-1" />
                             <span>No cover image uploaded. Displays blank outline card in customer UI.</span>
                           </div>
@@ -1523,14 +1703,14 @@ This erases the booking, its payment record and its room hold from the database.
                       </label>
                       <textarea 
                         rows={2}
-                        placeholder="Short summary of cafe dishes, archery coordinates, or convenience utilities..."
+                        placeholder="Short summary of the treatments, beauty services, or comforts included..."
                         value={srv.description}
                         onChange={(e) => {
                           const list = [...tempData.services];
                           list[index].description = e.target.value;
                           setTempData({ ...tempData, services: list });
                         }}
-                        className="w-full bg-pine-900 border border-pine-800 focus:border-gold-500/80 rounded-xl px-4 py-2 text-xs text-cream-50 focus:outline-none leading-relaxed"
+                        className="w-full bg-sand-900 border border-sand-800 focus:border-gold-500/80 rounded-xl px-4 py-2 text-xs text-cream-50 focus:outline-none leading-relaxed"
                       />
                     </div>
 
@@ -1548,7 +1728,7 @@ This erases the booking, its payment record and its room hold from the database.
                           list[index].details = e.target.value.split(',').map(s => s.trim()).filter(Boolean);
                           setTempData({ ...tempData, services: list });
                         }}
-                        className="w-full bg-pine-900 border border-pine-800 focus:border-gold-500/80 rounded-xl px-4 py-2 text-xs text-cream-50 focus:outline-none"
+                        className="w-full bg-sand-900 border border-sand-800 focus:border-gold-500/80 rounded-xl px-4 py-2 text-xs text-cream-50 focus:outline-none"
                       />
                     </div>
                   </div>
@@ -1594,12 +1774,12 @@ This erases the booking, its payment record and its room hold from the database.
             <div className="space-y-5 animate-fadeIn" id="admin_tab_bookings">
               <div className="flex items-start justify-between gap-4 flex-wrap">
                 <div>
-                  <h3 className="font-serif font-black text-xl text-cream-100">Live Customer Bookings Dashboard</h3>
-                  <p className="text-xs text-neutral-400 mt-1">Verify payments, approve reservations, and manage cancellations.</p>
+                  <h3 className="font-serif font-black text-xl text-cream-100">Live Appointments Dashboard</h3>
+                  <p className="text-xs text-neutral-400 mt-1">Verify payments, approve appointments, and manage cancellations across every branch.</p>
                 </div>
                 <button
                   onClick={onRefreshBookings}
-                  className="py-2 px-3 rounded-xl bg-pine-900 border border-pine-800 hover:border-gold-500/50 text-neutral-300 font-display font-bold text-[10px] uppercase tracking-wider transition-all inline-flex items-center gap-1.5"
+                  className="py-2 px-3 rounded-xl bg-sand-900 border border-sand-800 hover:border-gold-500/50 text-neutral-300 font-display font-bold text-[10px] uppercase tracking-wider transition-all inline-flex items-center gap-1.5"
                 >
                   <RefreshCw className="w-3 h-3" /> Refresh
                 </button>
@@ -1616,7 +1796,7 @@ This erases the booking, its payment record and its room hold from the database.
                       className={`p-3 rounded-xl border text-left transition-all ${
                         active
                           ? 'bg-gold-500/10 border-gold-500'
-                          : 'bg-pine-950 border-pine-850 hover:border-pine-700'
+                          : 'bg-sand-950 border-sand-850 hover:border-sand-700'
                       }`}
                     >
                       <div className="flex items-center justify-between gap-2">
@@ -1624,7 +1804,7 @@ This erases the booking, its payment record and its room hold from the database.
                         <span className={`text-[10px] font-black py-0.5 px-2 rounded-full ${
                           t.key === 'unconfirmed' && t.count > 0
                             ? 'bg-amber-500/20 text-amber-300'
-                            : active ? 'bg-gold-500/20 text-gold-300' : 'bg-pine-900 text-neutral-400'
+                            : active ? 'bg-gold-500/20 text-gold-300' : 'bg-sand-900 text-neutral-400'
                         }`}>{t.count}</span>
                       </div>
                       <span className="text-[10px] text-neutral-500 block mt-0.5">{t.sub}</span>
@@ -1640,11 +1820,11 @@ This erases the booking, its payment record and its room hold from the database.
                   type="text"
                   value={bookingSearch}
                   onChange={e => setBookingSearch(e.target.value)}
-                  placeholder="Search all bookings by reference (VP-XXXXXX), name, email, or phone..."
-                  className="w-full bg-pine-950 border border-pine-850 focus:border-gold-500 rounded-xl py-2.5 pl-10 pr-24 text-xs text-cream-100 outline-none transition-colors"
+                  placeholder="Search all bookings by reference (SDI-XXXXXX), name, email, or phone..."
+                  className="w-full bg-sand-950 border border-sand-850 focus:border-gold-500 rounded-xl py-2.5 pl-10 pr-24 text-xs text-cream-100 outline-none transition-colors"
                 />
                 {!searching && bookingFilter === 'archived' && (
-                <div className="text-[11px] text-neutral-400 bg-pine-950 border border-pine-850 rounded-xl px-3 py-2">
+                <div className="text-[11px] text-neutral-400 bg-sand-950 border border-sand-850 rounded-xl px-3 py-2">
                   These reservations no longer hold any dates. <span className="text-gold-400 font-semibold">Restore</span> puts one back in Unconfirmed;
                   <span className="text-red-400 font-semibold"> Delete</span> erases it from the database permanently.
                 </div>
@@ -1653,7 +1833,7 @@ This erases the booking, its payment record and its room hold from the database.
               {searching && (
                   <button
                     onClick={() => setBookingSearch('')}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] uppercase font-bold tracking-wider text-neutral-400 hover:text-gold-400 py-1 px-2 rounded-lg border border-pine-800"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] uppercase font-bold tracking-wider text-neutral-400 hover:text-gold-400 py-1 px-2 rounded-lg border border-sand-800"
                   >
                     Clear
                   </button>
@@ -1667,7 +1847,7 @@ This erases the booking, its payment record and its room hold from the database.
               )}
 
               {rows.length === 0 ? (
-                <div className="py-16 border border-dashed border-pine-800 rounded-3xl text-center text-neutral-400 text-xs flex flex-col items-center justify-center space-y-2">
+                <div className="py-16 border border-dashed border-sand-800 rounded-3xl text-center text-neutral-400 text-xs flex flex-col items-center justify-center space-y-2">
                   <Calendar className="w-8 h-8 text-neutral-600" />
                   <span>{emptyCopy}</span>
                   {!searching && bookings.length > 0 && (
@@ -1677,26 +1857,28 @@ This erases the booking, its payment record and its room hold from the database.
                   )}
                 </div>
               ) : (
-                <div className="bg-pine-950 border border-pine-850 rounded-2xl overflow-hidden" id="bookings_table_wrapper">
+                <div className="bg-sand-950 border border-sand-850 rounded-2xl overflow-hidden" id="bookings_table_wrapper">
                   <div className="overflow-x-auto">
-                    <table className="w-full min-w-[760px] border-collapse text-xs">
+                    <table className="w-full min-w-[900px] border-collapse text-xs">
                       <thead>
-                        <tr className="bg-pine-900/80 text-neutral-400 text-[10px] uppercase tracking-widest font-display font-black border-b border-pine-850">
+                        <tr className="bg-sand-900/80 text-neutral-400 text-[10px] uppercase tracking-widest font-display font-black border-b border-sand-850">
                           <th className="p-4 text-left">Reference</th>
                           <th className="p-4 text-left">Customer</th>
-                          <th className="p-4 text-left">Stay Plot</th>
-                          <th className="p-4 text-left">Check In/Out</th>
+                          <th className="p-4 text-left">Branch</th>
+                          <th className="p-4 text-left">Package</th>
+                          <th className="p-4 text-left">Appointment</th>
                           <th className="p-4 text-right">Amount</th>
                           <th className="p-4 text-center">Status</th>
                           <th className="p-4 text-right">Actions</th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-pine-900/60 font-medium">
+                      <tbody className="divide-y divide-sand-900/60 font-medium">
                         {rows.map((b) => {
-                          const cabinName = currentData.accommodations.find(a => a.id === b.accommodationId)?.name || 'Custom Accommodation';
+                          const packageName = currentData.accommodations.find(a => a.id === b.accommodationId)?.name || 'Spa package';
+                          const branchName = currentData.branches.find(br => br.id === b.branchId)?.name || b.branchId || '—';
                           const isArchived = b.status === 'cancelled' || b.status === 'rejected';
                           return (
-                            <tr key={b.id} className={`hover:bg-pine-900/25 transition-colors ${isArchived ? 'opacity-60' : ''}`} id={`booking_row_${b.id}`}>
+                            <tr key={b.id} className={`hover:bg-sand-900/25 transition-colors ${isArchived ? 'opacity-60' : ''}`} id={`booking_row_${b.id}`}>
                               <td className="p-4">
                                 <div className="font-mono font-bold text-gold-400">{b.reference || b.id}</div>
                                 <div className="text-[9px] text-neutral-600 font-mono">id {b.id}</div>
@@ -1705,10 +1887,11 @@ This erases the booking, its payment record and its room hold from the database.
                                 <div className="font-bold text-cream-100">{b.customerName}</div>
                                 <div className="text-[10px] text-neutral-500 font-mono">{b.customerEmail} | {b.customerPhone}</div>
                               </td>
-                              <td className="p-4 text-neutral-300 font-display font-semibold">{cabinName}</td>
+                              <td className="p-4 text-neutral-300 font-display font-semibold">{branchName}</td>
+                              <td className="p-4 text-neutral-300 font-display font-semibold">{packageName}</td>
                               <td className="p-4 text-neutral-300 font-mono">
-                                <div>In: {b.checkIn}</div>
-                                <div className="text-[10px] text-neutral-500">Out: {b.checkOut}</div>
+                                <div>{b.checkIn}</div>
+                                <div className="text-[10px] text-neutral-500">{b.guestsCount} pax</div>
                               </td>
                               <td className="p-4 text-right font-mono font-bold text-cream-100">
                                 ₱{b.totalAmount.toLocaleString()}
@@ -1739,7 +1922,7 @@ This erases the booking, its payment record and its room hold from the database.
                                   <>
                                     <button
                                       onClick={() => handleUpdateBookingStatus(b.id, 'pending')}
-                                      className="p-1 px-2 rounded bg-pine-900 border border-pine-800 hover:border-gold-500/50 text-neutral-400 hover:text-gold-400 font-display font-black text-[9px] uppercase tracking-wider transition-all cursor-pointer inline-flex items-center gap-1"
+                                      className="p-1 px-2 rounded bg-sand-900 border border-sand-800 hover:border-gold-500/50 text-neutral-400 hover:text-gold-400 font-display font-black text-[9px] uppercase tracking-wider transition-all cursor-pointer inline-flex items-center gap-1"
                                       title="Send back to Unconfirmed"
                                     >
                                       <RotateCcw className="w-3 h-3" />
@@ -1789,7 +1972,7 @@ This erases the booking, its payment record and its room hold from the database.
                 <button
                   onClick={loadAnalytics}
                   disabled={analyticsLoading}
-                  className="py-2 px-4 rounded-xl bg-pine-900 border border-pine-800 hover:border-gold-500/50 text-neutral-300 font-display font-bold text-xs transition-all disabled:opacity-50 inline-flex items-center gap-2"
+                  className="py-2 px-4 rounded-xl bg-sand-900 border border-sand-800 hover:border-gold-500/50 text-neutral-300 font-display font-bold text-xs transition-all disabled:opacity-50 inline-flex items-center gap-2"
                 >
                   <RefreshCw className={`w-3.5 h-3.5 ${analyticsLoading ? 'animate-spin' : ''}`} />
                   Refresh
@@ -1799,7 +1982,7 @@ This erases the booking, its payment record and its room hold from the database.
               {analyticsLoading && !analytics ? (
                 <div className="py-16 text-center text-neutral-500 text-xs">Loading visitor data…</div>
               ) : !analytics ? (
-                <div className="py-16 border border-dashed border-pine-800 rounded-2xl text-center text-neutral-400 text-xs">
+                <div className="py-16 border border-dashed border-sand-800 rounded-2xl text-center text-neutral-400 text-xs">
                   Couldn't load analytics. Try refreshing.
                 </div>
               ) : (
@@ -1811,7 +1994,7 @@ This erases the booking, its payment record and its room hold from the database.
                       { label: 'Total unique visitors', value: analytics.totalUnique },
                       { label: 'Page views today', value: analytics.pageViewsToday },
                     ].map((s) => (
-                      <div key={s.label} className="bg-pine-950 border border-pine-850 rounded-2xl p-4">
+                      <div key={s.label} className="bg-sand-950 border border-sand-850 rounded-2xl p-4">
                         <div className="font-display font-black text-2xl text-gold-400">{Number(s.value).toLocaleString()}</div>
                         <div className="text-[10px] uppercase tracking-wider text-neutral-500 font-display font-bold mt-1">{s.label}</div>
                       </div>
@@ -1819,22 +2002,22 @@ This erases the booking, its payment record and its room hold from the database.
                   </div>
 
                   <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 text-xs">
-                    <div className="bg-pine-950 border border-pine-850 rounded-2xl p-4">
+                    <div className="bg-sand-950 border border-sand-850 rounded-2xl p-4">
                       <span className="text-neutral-500 block">Unique visitors (30 days)</span>
                       <span className="font-display font-bold text-cream-100 text-lg">{Number(analytics.unique30d).toLocaleString()}</span>
                     </div>
-                    <div className="bg-pine-950 border border-pine-850 rounded-2xl p-4">
+                    <div className="bg-sand-950 border border-sand-850 rounded-2xl p-4">
                       <span className="text-neutral-500 block">Page views (7 days)</span>
                       <span className="font-display font-bold text-cream-100 text-lg">{Number(analytics.pageViews7d).toLocaleString()}</span>
                     </div>
-                    <div className="bg-pine-950 border border-pine-850 rounded-2xl p-4">
+                    <div className="bg-sand-950 border border-sand-850 rounded-2xl p-4">
                       <span className="text-neutral-500 block">Page views (all time)</span>
                       <span className="font-display font-bold text-cream-100 text-lg">{Number(analytics.pageViewsTotal).toLocaleString()}</span>
                     </div>
                   </div>
 
                   {/* Last 14 days */}
-                  <div className="bg-pine-950 border border-pine-850 rounded-2xl p-5">
+                  <div className="bg-sand-950 border border-sand-850 rounded-2xl p-5">
                     <h4 className="font-display font-bold text-xs uppercase tracking-wider text-neutral-400 mb-4">Last 14 days</h4>
                     {(!analytics.daily || analytics.daily.length === 0) ? (
                       <div className="text-xs text-neutral-500 py-6 text-center">No visits recorded yet.</div>
@@ -1845,7 +2028,7 @@ This erases the booking, its payment record and its room hold from the database.
                           return analytics.daily.map((d: any) => (
                             <div key={d.day} className="flex items-center gap-3 text-[11px]">
                               <span className="w-20 shrink-0 text-neutral-500 font-mono">{d.day.slice(5)}</span>
-                              <div className="flex-1 bg-pine-900 rounded-full h-4 overflow-hidden">
+                              <div className="flex-1 bg-sand-900 rounded-full h-4 overflow-hidden">
                                 <div className="bg-gold-500/70 h-full rounded-full" style={{ width: `${(d.pageViews / maxPv) * 100}%` }} />
                               </div>
                               <span className="w-28 shrink-0 text-right text-neutral-300">
@@ -1859,19 +2042,19 @@ This erases the booking, its payment record and its room hold from the database.
                   </div>
 
                   {/* Recent visitors */}
-                  <div className="bg-pine-950 border border-pine-850 rounded-2xl overflow-hidden">
+                  <div className="bg-sand-950 border border-sand-850 rounded-2xl overflow-hidden">
                     <h4 className="font-display font-bold text-xs uppercase tracking-wider text-neutral-400 p-5 pb-3">Most recent visitors</h4>
                     <div className="overflow-x-auto">
                       <table className="w-full min-w-[520px] text-xs">
                         <thead>
-                          <tr className="bg-pine-900/80 text-neutral-500 text-[10px] uppercase tracking-widest font-display font-black">
+                          <tr className="bg-sand-900/80 text-neutral-500 text-[10px] uppercase tracking-widest font-display font-black">
                             <th className="p-3 text-left">Anonymous ID</th>
                             <th className="p-3 text-left">First visit</th>
                             <th className="p-3 text-left">Last visit</th>
                             <th className="p-3 text-right">Page views</th>
                           </tr>
                         </thead>
-                        <tbody className="divide-y divide-pine-900/60">
+                        <tbody className="divide-y divide-sand-900/60">
                           {(analytics.recentVisitors || []).map((v: any) => (
                             <tr key={v.visitorId}>
                               <td className="p-3 font-mono text-gold-400/80">{String(v.visitorId).slice(0, 12)}…</td>
@@ -1904,21 +2087,21 @@ This erases the booking, its payment record and its room hold from the database.
                   </p>
                 </div>
 
-                <div className="bg-pine-950 p-6 rounded-2xl border border-pine-850 space-y-5 max-w-2xl text-left">
+                <div className="bg-sand-950 p-6 rounded-2xl border border-sand-850 space-y-5 max-w-2xl text-left">
                   <div className="space-y-1.5">
                     <label className="text-[11px] uppercase font-bold tracking-widest text-neutral-400 font-display block">Headline</label>
                     <input
                       type="text"
                       value={payInstr.headline}
                       onChange={e => setPayInstr((p: any) => ({ ...p, headline: e.target.value }))}
-                      className="w-full bg-pine-900 border border-pine-800 rounded-xl py-2.5 px-4 text-sm text-cream-100 focus:outline-none focus:border-gold-500"
+                      className="w-full bg-sand-900 border border-sand-800 rounded-xl py-2.5 px-4 text-sm text-cream-100 focus:outline-none focus:border-gold-500"
                     />
                   </div>
 
                   <div className="space-y-3">
                     <label className="text-[11px] uppercase font-bold tracking-widest text-neutral-400 font-display block">Accounts</label>
                     {payInstr.accounts.map((acc: any, idx: number) => (
-                      <div key={idx} className="bg-pine-900 border border-pine-800 rounded-xl p-4 space-y-3">
+                      <div key={idx} className="bg-sand-900 border border-sand-800 rounded-xl p-4 space-y-3">
                         <div className="flex items-center justify-between">
                           <span className="text-[10px] uppercase font-bold text-gold-400 font-display">Account {idx + 1}</span>
                           {payInstr.accounts.length > 1 && (
@@ -1928,15 +2111,15 @@ This erases the booking, its payment record and its room hold from the database.
                           )}
                         </div>
                         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                          <input type="text" placeholder="Method (GCash, Maya, BDO...)" value={acc.method} onChange={e => updatePayAccount(idx, 'method', e.target.value)} className="bg-pine-950 border border-pine-800 rounded-lg py-2 px-3 text-xs text-cream-100 focus:outline-none focus:border-gold-500" />
-                          <input type="text" placeholder="Account name" value={acc.accountName} onChange={e => updatePayAccount(idx, 'accountName', e.target.value)} className="bg-pine-950 border border-pine-800 rounded-lg py-2 px-3 text-xs text-cream-100 focus:outline-none focus:border-gold-500" />
-                          <input type="text" placeholder="Account number" value={acc.accountNumber} onChange={e => updatePayAccount(idx, 'accountNumber', e.target.value)} className="bg-pine-950 border border-pine-800 rounded-lg py-2 px-3 text-xs text-cream-100 font-mono focus:outline-none focus:border-gold-500" />
+                          <input type="text" placeholder="Method (GCash, Maya, BDO...)" value={acc.method} onChange={e => updatePayAccount(idx, 'method', e.target.value)} className="bg-sand-950 border border-sand-800 rounded-lg py-2 px-3 text-xs text-cream-100 focus:outline-none focus:border-gold-500" />
+                          <input type="text" placeholder="Account name" value={acc.accountName} onChange={e => updatePayAccount(idx, 'accountName', e.target.value)} className="bg-sand-950 border border-sand-800 rounded-lg py-2 px-3 text-xs text-cream-100 focus:outline-none focus:border-gold-500" />
+                          <input type="text" placeholder="Account number" value={acc.accountNumber} onChange={e => updatePayAccount(idx, 'accountNumber', e.target.value)} className="bg-sand-950 border border-sand-800 rounded-lg py-2 px-3 text-xs text-cream-100 font-mono focus:outline-none focus:border-gold-500" />
                         </div>
                         <div className="flex items-center gap-3">
                           {acc.qrImageUrl ? (
-                            <img src={acc.qrImageUrl} alt="QR" className="w-14 h-14 rounded-lg object-contain border border-pine-800 bg-white" />
+                            <img src={acc.qrImageUrl} alt="QR" className="w-14 h-14 rounded-lg object-contain border border-sand-800 bg-white" />
                           ) : null}
-                          <label className="text-[11px] text-gold-400 hover:text-gold-300 cursor-pointer border border-dashed border-pine-700 rounded-lg px-3 py-2">
+                          <label className="text-[11px] text-gold-400 hover:text-gold-300 cursor-pointer border border-dashed border-sand-700 rounded-lg px-3 py-2">
                             {acc.qrImageUrl ? 'Replace QR image' : 'Upload QR image'}
                             <input type="file" accept="image/*" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) handleImageUpload(f, url => updatePayAccount(idx, 'qrImageUrl', url)); }} />
                           </label>
@@ -1952,13 +2135,13 @@ This erases the booking, its payment record and its room hold from the database.
                   </div>
 
                   <div className="space-y-1.5">
-                    <label className="text-[11px] uppercase font-bold tracking-widest text-neutral-400 font-display block">Proof-of-payment email (Valleypoint receives this)</label>
+                    <label className="text-[11px] uppercase font-bold tracking-widest text-neutral-400 font-display block">Proof-of-payment email (Spa de Iloko receives this)</label>
                     <input
                       type="email"
                       value={payInstr.proofEmail}
                       onChange={e => setPayInstr((p: any) => ({ ...p, proofEmail: e.target.value }))}
-                      placeholder="payments@valleypoint.example"
-                      className="w-full bg-pine-900 border border-pine-800 rounded-xl py-2.5 px-4 text-sm text-cream-100 font-mono focus:outline-none focus:border-gold-500"
+                      placeholder="payments@spadeiloko.example"
+                      className="w-full bg-sand-900 border border-sand-800 rounded-xl py-2.5 px-4 text-sm text-cream-100 font-mono focus:outline-none focus:border-gold-500"
                     />
                   </div>
 
@@ -1968,7 +2151,7 @@ This erases the booking, its payment record and its room hold from the database.
                       rows={4}
                       value={payInstr.note}
                       onChange={e => setPayInstr((p: any) => ({ ...p, note: e.target.value }))}
-                      className="w-full bg-pine-900 border border-pine-800 rounded-xl py-2.5 px-4 text-sm text-cream-100 focus:outline-none focus:border-gold-500 resize-none"
+                      className="w-full bg-sand-900 border border-sand-800 rounded-xl py-2.5 px-4 text-sm text-cream-100 focus:outline-none focus:border-gold-500 resize-none"
                     />
                   </div>
 
@@ -1992,7 +2175,7 @@ This erases the booking, its payment record and its room hold from the database.
                     cancelled automatically and the room goes back on sale. Checked every 15 minutes.
                   </p>
                 </div>
-                <div className="bg-pine-950 p-6 rounded-2xl border border-pine-850 space-y-4 max-w-md text-left">
+                <div className="bg-sand-950 p-6 rounded-2xl border border-sand-850 space-y-4 max-w-md text-left">
                   <label className="text-[11px] uppercase font-bold tracking-widest text-neutral-400 font-display block">Hold window (hours)</label>
                   <div className="flex items-center gap-3">
                     <input
@@ -2001,7 +2184,7 @@ This erases the booking, its payment record and its room hold from the database.
                       max={720}
                       value={holdHours}
                       onChange={e => setHoldHours(e.target.value === '' ? '' : Number(e.target.value))}
-                      className="w-32 bg-pine-900 border border-pine-800 rounded-xl py-2.5 px-4 text-sm text-cream-100 font-mono focus:outline-none focus:border-gold-500"
+                      className="w-32 bg-sand-900 border border-sand-800 rounded-xl py-2.5 px-4 text-sm text-cream-100 font-mono focus:outline-none focus:border-gold-500"
                     />
                     <span className="text-xs text-neutral-500">= {holdHours ? (Number(holdHours) / 24).toFixed(1) : '0'} days</span>
                   </div>
@@ -2023,18 +2206,18 @@ This erases the booking, its payment record and its room hold from the database.
               <div>
                 <h3 className="font-serif font-black text-xl text-cream-100">Admin Password Management</h3>
                 <p className="text-xs text-neutral-400 mt-1">
-                  Change the password required to open the Valleypoint Admin Control Panel.
+                  Change the password required to open the Spa de Iloko Admin Control Panel.
                 </p>
               </div>
 
-              <div className="bg-pine-950 p-6 rounded-2xl border border-pine-850 space-y-4 max-w-md text-left">
+              <div className="bg-sand-950 p-6 rounded-2xl border border-sand-850 space-y-4 max-w-md text-left">
                 <div className="space-y-1.5">
                   <label className="text-xs uppercase font-bold tracking-widest text-neutral-400 font-display block">New Password</label>
                   <input
                     type="password"
                     placeholder="Enter new admin password"
                     id="new_password_input"
-                    className="w-full bg-pine-900 border border-pine-800 rounded-xl py-2.5 px-4 text-sm text-cream-100 focus:outline-none focus:border-gold-500 transition-all font-mono"
+                    className="w-full bg-sand-900 border border-sand-800 rounded-xl py-2.5 px-4 text-sm text-cream-100 focus:outline-none focus:border-gold-500 transition-all font-mono"
                   />
                 </div>
                 <div className="space-y-1.5">
@@ -2043,7 +2226,7 @@ This erases the booking, its payment record and its room hold from the database.
                     type="password"
                     placeholder="Confirm new password"
                     id="confirm_password_input"
-                    className="w-full bg-pine-900 border border-pine-800 rounded-xl py-2.5 px-4 text-sm text-cream-100 focus:outline-none focus:border-gold-500 transition-all font-mono"
+                    className="w-full bg-sand-900 border border-sand-800 rounded-xl py-2.5 px-4 text-sm text-cream-100 focus:outline-none focus:border-gold-500 transition-all font-mono"
                   />
                 </div>
                 <button

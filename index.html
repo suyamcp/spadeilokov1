@@ -3,13 +3,14 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Valleypoint Campsite</title>
+    <title>Spa de Iloko — Relax. Refresh. Rejuvenate.</title>
     <script>
       // Applied before React mounts so the page never flashes the wrong theme.
+      // Light brown is the signature look, so it is the default.
       try {
-        var t = localStorage.getItem('vp_theme');
-        document.documentElement.setAttribute('data-theme', t === 'light' ? 'light' : 'dark');
-      } catch (e) { document.documentElement.setAttribute('data-theme', 'dark'); }
+        var t = localStorage.getItem('sdi_theme');
+        document.documentElement.setAttribute('data-theme', t === 'dark' ? 'dark' : 'light');
+      } catch (e) { document.documentElement.setAttribute('data-theme', 'light'); }
     </script>
   </head>
   <body>
@@ -17,4 +18,3 @@
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
-

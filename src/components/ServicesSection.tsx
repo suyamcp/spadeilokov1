@@ -1,5 +1,5 @@
 import React from 'react';
-import { Coffee, ShieldCheck, Gamepad2, Sparkles, Check, Image as ImageIcon } from 'lucide-react';
+import { HandHeart, Flower2, ShieldCheck, Sparkles, Check, Image as ImageIcon } from 'lucide-react';
 import { Service } from '../types';
 
 interface ServicesSectionProps {
@@ -9,27 +9,27 @@ interface ServicesSectionProps {
 export default function ServicesSection({ services }: ServicesSectionProps) {
   const getIcon = (idx: number) => {
     switch (idx % 4) {
-      case 0: return <Coffee className="w-5 h-5 text-gold-500" />;
-      case 1: return <Gamepad2 className="w-5 h-5 text-gold-500" />;
+      case 0: return <HandHeart className="w-5 h-5 text-gold-500" />;
+      case 1: return <Flower2 className="w-5 h-5 text-gold-500" />;
       case 2: return <ShieldCheck className="w-5 h-5 text-gold-500" />;
       default: return <Sparkles className="w-5 h-5 text-gold-500" />;
     }
   };
 
   return (
-    <section id="services" className="py-24 bg-pine-950 border-t border-pine-900/60 text-cream-50 scroll-mt-20">
+    <section id="services" className="py-24 bg-sand-950 border-t border-sand-900/60 text-cream-50 scroll-mt-20">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         
         {/* Section Heading */}
         <div className="text-center max-w-3xl mx-auto mb-16 space-y-4">
           <span className="text-xs uppercase font-extrabold tracking-widest text-gold-400 font-display block">
-            CAMPSITE EXPERIENCES
+            WHAT WE OFFER
           </span>
           <h2 className="font-serif font-bold text-3xl sm:text-4xl text-cream-100">
-            Valleypoint Hospitality Services
+            Treatments & Spa Services
           </h2>
           <p className="text-sm text-neutral-400 leading-relaxed">
-            We provide specialized creature comforts that allow campers to enjoy raw mountain scenery without compromising on convenience. Warm up, unwind, stay secure, and share the journey.
+            The same menu of treatments and the same standard of care at every branch. Book a room online, or ask our front desk about anything you do not see listed here.
           </p>
         </div>
 
@@ -41,12 +41,12 @@ export default function ServicesSection({ services }: ServicesSectionProps) {
             return (
               <div
                 key={srv.id}
-                className="bg-pine-900/30 border border-pine-850 hover:border-gold-500/30 hover:bg-pine-900/60 rounded-3xl overflow-hidden transition-all flex flex-col justify-between group"
+                className="bg-sand-900/30 border border-sand-850 hover:border-gold-500/30 hover:bg-sand-900/60 rounded-3xl overflow-hidden transition-all flex flex-col justify-between group"
                 id={`service_container_${srv.id}`}
               >
                 <div>
                   {/* Responsive visual header image */}
-                  <div className="aspect-video w-full overflow-hidden relative border-b border-pine-850">
+                  <div className="aspect-video w-full overflow-hidden relative border-b border-sand-850">
                     {srv.image ? (
                       <img
                         src={srv.image}
@@ -55,17 +55,17 @@ export default function ServicesSection({ services }: ServicesSectionProps) {
                         referrerPolicy="no-referrer"
                       />
                     ) : (
-                      <div className="w-full h-full border border-dashed border-pine-800 flex flex-col items-center justify-center bg-pine-950/40 text-neutral-500 text-xs gap-1.5 p-4">
+                      <div className="w-full h-full border border-dashed border-sand-800 flex flex-col items-center justify-center bg-sand-950/40 text-neutral-500 text-xs gap-1.5 p-4">
                         <ImageIcon className="w-6 h-6 text-neutral-600 animate-pulse" />
                         <span className="font-display font-bold text-[10px] tracking-wider uppercase text-neutral-500">Service Image Placeholder</span>
                         <span className="text-[9px] text-neutral-600 font-medium">Upload via Admin UI</span>
                       </div>
                     )}
-                    <div className="img-fade absolute inset-0 bg-gradient-to-t from-pine-950 via-pine-950/20 to-transparent" />
+                    <div className="img-fade absolute inset-0 bg-gradient-to-t from-sand-950 via-sand-950/20 to-transparent" />
                     
                     {/* Floating price tag badge */}
                     {srv.price && (
-                      <span className="absolute bottom-4 left-4 py-1 px-2.5 rounded-lg bg-pine-950/90 backdrop-blur border border-pine-800 text-[10px] font-bold text-gold-400 tracking-wide font-display">
+                      <span className="absolute bottom-4 left-4 py-1 px-2.5 rounded-lg bg-sand-950/90 backdrop-blur border border-sand-800 text-[10px] font-bold text-gold-400 tracking-wide font-display">
                         {srv.price}
                       </span>
                     )}
@@ -74,16 +74,16 @@ export default function ServicesSection({ services }: ServicesSectionProps) {
                   {/* Body details */}
                   <div className="p-6 space-y-4 text-left">
                     <div className="flex items-center gap-2">
-                      <span className="p-1.5 bg-pine-900 rounded-lg border border-pine-800 shrink-0">
+                      <span className="p-1.5 bg-sand-900 rounded-lg border border-sand-800 shrink-0">
                         {getIcon(idx)}
                       </span>
                       <h3 className="font-display font-bold text-sm text-cream-100 group-hover:text-gold-400 transition-colors">
-                        {srv.name || `Service Plot #${idx + 1} Placeholder`}
+                        {srv.name || `Service #${idx + 1} Placeholder`}
                       </h3>
                     </div>
 
                     <p className="text-xs text-neutral-400 leading-relaxed min-h-[36px]">
-                      {srv.description || 'This service has not been detailed by the admin yet. Log into the Admin Panel to write a description, configure rates, and list key feature sets.'}
+                      {srv.description || 'This service has not been detailed by the admin yet. Log into the Admin Panel to write a description, configure rates, and list what it includes.'}
                     </p>
 
                     {srv.details && srv.details.length > 0 ? (
