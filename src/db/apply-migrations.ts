@@ -1,3 +1,5 @@
+// Standalone script: load .env before anything reads process.env.
+import 'dotenv/config';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import pg from 'pg';
 import { sql } from 'drizzle-orm';

@@ -550,10 +550,14 @@ async function startServer() {
     }
   }
 
-  // Replace campsite-era CMS copy with the spa defaults, once. Guarded by a marker
-  // row so an admin's later edits are never clobbered on the next restart.
+  // Makes sure the site always has content to render. On a brand-new database it
+  // installs the Spa de Iloko defaults so the first page load is a finished site,
+  // not a wall of placeholders. On a database left over from the campsite build it
+  // replaces that copy instead. Either way it runs once -- a marker row stops the
+  // next restart from clobbering whatever the admin has since edited.
   const CONTENT_VERSION = 'spa-1';
-  async function migrateSiteContentToSpa() {
+  const CONTENT_KEYS = ['hero', 'about', 'accommodations', 'services', 'faqs'];
+  async function seedOrMigrateSiteContent() {
     try {
       const rows = await db.select().from(siteContent);
       const marker = rows.find(r => r.key === 'content_version');
@@ -562,9 +566,25 @@ async function startServer() {
       // Matches the OLD stored content so we know to replace it. The campsite
       // words here are data we are looking for, not branding we display.
       const legacy = /luxury-cabin|deluxe-glamping|standard-pitching|Valleypoint|campsite|glamping/i;
-      const hasLegacyCopy = rows.some(
-        r => ['hero', 'about', 'accommodations', 'services', 'faqs'].includes(r.key) && legacy.test(r.value)
-      );
+      const hasLegacyCopy = rows.some(r => CONTENT_KEYS.includes(r.key) && legacy.test(r.value));
+
+      // A key counts as missing if it is absent or holds an empty/blank payload,
+      // so a half-populated database still gets completed rather than half-rendered.
+      const isBlank = (key: string) => {
+        const row = rows.find(r => r.key === key);
+        if (!row?.value) return true;
+        try {
+          const parsed = JSON.parse(row.value);
+          if (Array.isArray(parsed)) return parsed.length === 0;
+          if (parsed && typeof parsed === 'object') {
+            return Object.values(parsed).every(v => v === '' || v === null || v === undefined);
+          }
+          return !parsed;
+        } catch {
+          return false;
+        }
+      };
+      const isFreshInstall = CONTENT_KEYS.every(isBlank);
 
       const upsert = async (key: string, value: any) => {
         const valueStr = typeof value === 'string' ? value : JSON.stringify(value);
@@ -573,13 +593,15 @@ async function startServer() {
           .onConflictDoUpdate({ target: siteContent.key, set: { value: valueStr, updatedAt: new Date() } });
       };
 
-      if (hasLegacyCopy) {
+      if (hasLegacyCopy || isFreshInstall) {
         await upsert('hero', DEFAULT_HERO);
         await upsert('about', DEFAULT_ABOUT);
         await upsert('accommodations', SPA_PACKAGES);
         await upsert('services', SERVICES);
         await upsert('faqs', FAQS);
-        console.log('✓ Replaced legacy campsite content with the Spa de Iloko defaults.');
+        console.log(hasLegacyCopy
+          ? '✓ Replaced legacy campsite content with the Spa de Iloko defaults.'
+          : '✓ Installed the Spa de Iloko starter content for this new database.');
       }
 
       // The booking portal cannot render without a branch list, so guarantee one.
@@ -587,7 +609,7 @@ async function startServer() {
 
       await upsert('content_version', CONTENT_VERSION);
     } catch (err) {
-      console.error('Failed to migrate site content:', err);
+      console.error('Failed to seed/migrate site content:', err);
     }
   }
 
@@ -651,7 +673,7 @@ async function startServer() {
 
   await ensureBranchColumn();
   await migrateLegacyRoomTypes();
-  await migrateSiteContentToSpa();
+  await seedOrMigrateSiteContent();
   await seedRoomTypesAndRooms();
   await seedAddOnsIfNeeded();
   await seedDefaultAdminIfNeeded();
