@@ -225,26 +225,44 @@ export default function BookingSystem({
   };
 
   // How many of the selected room grade are free at this branch on a given date.
+  //
+  // `unconfigured` is deliberately NOT the same as `booked`. A package with no
+  // rooms behind it -- because the admin has not set a count yet, or because
+  // /api/content failed and we are sitting on the blank fallback -- must never
+  // be reported to a visitor as "Fully Booked". Saying a spa is sold out when
+  // we simply have no data is worse than saying nothing.
   const getAvailableInventoryOnDate = (
     branchId: string,
     accId: string | undefined,
     dateStr: string
-  ): { available: number; total: number; status: 'available' | 'limited' | 'booked' } => {
+  ): { available: number; total: number; status: 'available' | 'limited' | 'booked' | 'unconfigured' } => {
     const acc = accommodations.find(a => a.id === accId) || selectedAcc;
-    if (!acc || !branchId) return { available: 0, total: 0, status: 'booked' };
+    const total = Number(acc?.quantity) || 0;
+    if (!acc || !branchId || total <= 0) {
+      return { available: 0, total: 0, status: 'unconfigured' };
+    }
 
     const occupied = getOccupancyOnDate(branchId, acc.id, dateStr);
-    const available = Math.max(0, acc.quantity - occupied);
+    const available = Math.max(0, total - occupied);
 
+    // "Few left" has to be relative to how many rooms this package actually has.
+    // A flat `available <= 2` was written for the old 4/8/15 unit counts and marks
+    // a 2-room package as scarce even when both rooms are free — false urgency.
+    // Scarce means at most ~30% of the rooms remain, and never the full set.
+    const lowWaterMark = Math.max(1, Math.ceil(total * 0.3));
     let status: 'available' | 'limited' | 'booked' = 'available';
     if (available === 0) {
       status = 'booked';
-    } else if (available <= 2 || available <= acc.quantity * 0.3) {
+    } else if (available <= lowWaterMark && available < total) {
       status = 'limited';
     }
 
-    return { available, total: acc.quantity, status };
+    return { available, total, status };
   };
+
+  /** True once we actually know this branch/package has rooms to sell. */
+  const inventoryKnown =
+    !!selectedBranchId && Number(selectedAcc?.quantity) > 0;
 
   // --- CALENDAR GRID GENERATION (Custom Grid) ---
   const generateCurrentMonthDays = () => {
@@ -496,6 +514,10 @@ export default function BookingSystem({
     if (isSelected) {
       return 'bg-gold-500 text-ink font-bold scale-105 z-10 shadow-lg';
     }
+    if (status === 'unconfigured') {
+      // Neutral and quiet — we are not claiming anything about availability.
+      return 'text-neutral-500 border border-sand-800/30 cursor-not-allowed opacity-60';
+    }
     if (!isCurrentMonth) {
       return 'text-neutral-500 hover:bg-sand-800/40';
     }
@@ -719,10 +741,21 @@ export default function BookingSystem({
                     {/* Calendar Grid Container */}
                     <div className="bg-sand-950/60 border border-sand-800 rounded-2xl p-4 flex-1 flex flex-col justify-between">
                       <div>
-                        {selectedBranch && (
-                          <p className="text-[10px] text-neutral-500 mb-3 text-center">
-                            Showing availability for <span className="text-gold-400 font-semibold">{selectedBranch.name}</span>
-                          </p>
+                        {inventoryKnown ? (
+                          selectedBranch && (
+                            <p className="text-[10px] text-neutral-500 mb-3 text-center">
+                              Showing availability for <span className="text-gold-400 font-semibold">{selectedBranch.name}</span>
+                            </p>
+                          )
+                        ) : (
+                          <div className="flex items-start gap-2 text-[11px] text-amber-300 bg-amber-500/10 border border-amber-500/20 rounded-xl p-2.5 mb-3 leading-relaxed">
+                            <AlertCircle className="w-4 h-4 shrink-0 stroke-[2.5]" />
+                            <span>
+                              Availability for this package isn't loaded yet, so no dates can be selected.
+                              Try reloading the page — if it persists, the treatment-room count for this
+                              package still needs setting in the admin panel.
+                            </span>
+                          </div>
                         )}
 
                         {/* Weekday Labels */}
@@ -766,6 +799,12 @@ export default function BookingSystem({
                           <span className="w-2.5 h-2.5 rounded-full bg-rose-500/30 border border-rose-500/40" />
                           <span>Fully Booked</span>
                         </div>
+                        {!inventoryKnown && (
+                          <div className="flex items-center gap-1.5">
+                            <span className="w-2.5 h-2.5 rounded-full border border-sand-800/60 opacity-60" />
+                            <span>Not available</span>
+                          </div>
+                        )}
                       </div>
                     </div>
                   </div>

@@ -40,6 +40,9 @@ export default function App() {
   const [preselectedBranchId, setPreselectedBranchId] = useState<string>('');
   const [showNotification, setShowNotification] = useState<boolean>(false);
   const [notificationMsg, setNotificationMsg] = useState<string>('');
+  // When /api/content fails we fall back to blank placeholders. Saying so is far
+  // better than rendering an empty site that looks deliberately empty.
+  const [contentFailed, setContentFailed] = useState<boolean>(false);
 
   // --- NEW TWO-SYSTEM STATES ---
   const [showAdmin, setShowAdmin] = useState<boolean>(false);
@@ -62,9 +65,11 @@ export default function App() {
         };
         setCmsData(merged);
         saveCMSData(merged);
+        setContentFailed(false);
       })
       .catch(err => {
         console.error('Failed to load CMS content from server, using local fallback:', err);
+        setContentFailed(true);
       });
   }, []);
 
@@ -189,6 +194,15 @@ export default function App() {
     <div className="min-h-screen bg-sand-950 text-cream-50 font-sans selection:bg-gold-500 selection:text-ink antialiased overflow-x-hidden">
 
       <CookieConsent />
+
+      {/* The site is running on fallback data — say so rather than showing an
+          empty page (or, worse, a calendar with nothing available). */}
+      {contentFailed && !showAdmin && (
+        <div className="bg-amber-500/15 border-b border-amber-500/30 text-amber-200 text-xs px-4 py-2.5 text-center" id="content_load_banner">
+          We couldn't reach the server, so prices and availability may be out of date.
+          Please <button onClick={() => window.location.reload()} className="underline font-semibold hover:text-amber-100 cursor-pointer">reload the page</button> before booking.
+        </div>
+      )}
 
       {/* Toast Notification HUD */}
       <AnimatePresence>
